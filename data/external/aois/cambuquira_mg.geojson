@@ -1,0 +1,37 @@
+{
+  "type": "FeatureCollection",
+  "name": "cambuquira_mg",
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+    }
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "nome": "Cambuquira",
+        "uf": "MG",
+        "ibge_code": "3111606",
+        "tipologia": "municipio_rural_pequeno",
+        "populacao_2022": 12609,
+        "area_km2_oficial": 71.85,
+        "descricao": "Municipio do sul de Minas Gerais, conhecido pelas aguas minerais. Sede urbana compacta cercada por extensa area rural com propriedades dispersas. AOI cobre um retangulo envolvente da area municipal para captar tanto a sede quanto a zona rural.",
+        "fonte_polígono": "Bounding box aproximada baseada em referencias IBGE — recorte de trabalho, nao limite oficial"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-45.36, -21.90],
+            [-45.36, -21.82],
+            [-45.24, -21.82],
+            [-45.24, -21.90],
+            [-45.36, -21.90]
+          ]
+        ]
+      }
+    }
+  ]
+}
