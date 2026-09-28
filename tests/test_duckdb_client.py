@@ -322,6 +322,41 @@ class TestRecortarPorAOI:
                 duckdb_conn, "fp", "aoi", "1invalid"
             )
 
+    def test_valida_crs_alvo(self, duckdb_conn) -> None:
+        """CRS invalido deve ser rejeitado antes de qualquer query."""
+        with pytest.raises(ValueError, match="crs_alvo"):
+            ddb.recortar_por_aoi(
+                duckdb_conn, "fp", "aoi", "recorte", crs_alvo="'; DROP TABLE"
+            )
+
+    def test_normaliza_crs_entre_epsg4326_e_ogccrs84(
+        self,
+        duckdb_conn,
+        mini_dataset_parquet,
+        path_geojson_cambuquira,
+    ) -> None:
+        """Regressao: o bug original ocorria porque ST_GeomFromText produz
+        geometrias com CRS EPSG:4326 e ST_Read do GeoJSON produz OGC:CRS84.
+        Versoes recentes da extensao spatial rejeitam a operacao. A funcao
+        deve normalizar ambas via ST_SetCRS antes do ST_Intersects.
+
+        Este teste reproduz o cenario exato: mini_dataset via ST_GeomFromText
+        + AOI via ST_Read + recorte. Sem a normalizacao, quebra com
+        BinderException; com a normalizacao, funciona.
+        """
+        caminho = str(mini_dataset_parquet).replace("\\", "/")
+        duckdb_conn.execute(f"CREATE TABLE fps AS SELECT * FROM '{caminho}'")
+        ddb.carregar_aoi_geojson(duckdb_conn, path_geojson_cambuquira, "aoi_norm")
+
+        # Nao deve levantar BinderException nem qualquer outro erro
+        n = ddb.recortar_por_aoi(
+            duckdb_conn,
+            tabela_footprints="fps",
+            tabela_aoi="aoi_norm",
+            tabela_recorte="rec_norm",
+        )
+        assert n == 20
+
 
 # =============================================================================
 # Exportação

@@ -426,6 +426,7 @@ def recortar_por_aoi(
     coluna_geom_footprints: str = "geometry",
     coluna_geom_aoi: str = "geom",
     preservar_colunas: tuple[str, ...] = (config.COLUMN_SOURCE,),
+    crs_alvo: str = "EPSG:4326",
 ) -> int:
     """Recorta footprints por interseção com a AOI, criando nova tabela.
 
@@ -433,6 +434,24 @@ def recortar_por_aoi(
     AOI, filtrando via ``ST_Intersects``. O resultado é uma tabela
     contendo apenas as edificações dentro da AOI, com a geometria
     eventualmente cortada nas bordas.
+
+    Normalização de CRS
+    -------------------
+
+    Versões recentes da extensão DuckDB spatial (>= 1.5) fazem
+    validação estrita de CRS entre geometrias em operações binárias.
+    Duas geometrias que representam o mesmo sistema físico (WGS84)
+    mas foram rotuladas com CRS distintos — como ``EPSG:4326`` (default
+    do ``ST_GeomFromText``) e ``OGC:CRS84`` (default do ``ST_Read``
+    para GeoJSON, seguindo RFC 7946) — causam ``BinderException`` ao
+    ser passadas juntas para ``ST_Intersects``.
+
+    Essa função aplica ``ST_SetCRS(geom, crs_alvo)`` em ambas as
+    geometrias antes de qualquer operação, forçando-as ao mesmo
+    rótulo. ``ST_SetCRS`` apenas **re-rotula** a geometria (não
+    transforma coordenadas), o que é seguro aqui porque
+    ``EPSG:4326`` e ``OGC:CRS84`` são o mesmo sistema físico com
+    nomes diferentes na registration authority.
 
     Parameters
     ----------
@@ -452,6 +471,11 @@ def recortar_por_aoi(
         Cada nome é validado como identificador SQL. Por default
         preserva apenas ``bf_source``, que é a coluna essencial para
         a análise comparativa Google × Microsoft.
+    crs_alvo : str, default ``"EPSG:4326"``
+        CRS a aplicar via ``ST_SetCRS`` em ambas as geometrias antes
+        da operação. Como o dataset Open Buildings e os GeoJSONs de
+        AOI já estão em WGS84, o default cobre 100% dos casos deste
+        projeto. Só mude se souber o que está fazendo.
 
     Returns
     -------
@@ -466,20 +490,33 @@ def recortar_por_aoi(
     for col in preservar_colunas:
         _validar_identificador(col, "coluna a preservar")
 
+    # Validação básica do CRS alvo — evita SQL injection e catches erros de digitação.
+    # Formato esperado: "EPSG:4326", "OGC:CRS84", etc. — só letras, dígitos e ":"
+    if not re.match(r"^[A-Za-z0-9:_-]+$", crs_alvo):
+        raise ValueError(
+            f"crs_alvo invalido: {crs_alvo!r}. "
+            "Esperado formato como 'EPSG:4326' ou 'OGC:CRS84'."
+        )
+
     cols_extras = ", ".join(f"b.{c}" for c in preservar_colunas)
     if cols_extras:
         cols_extras = ", " + cols_extras
 
+    # Normalização de CRS: forca ambas as geometrias ao mesmo rotulo antes
+    # da operação binaria. Ver docstring para detalhes.
+    geom_b = f"ST_SetCRS(b.{coluna_geom_footprints}, '{crs_alvo}')"
+    geom_a = f"ST_SetCRS(a.{coluna_geom_aoi}, '{crs_alvo}')"
+
     sql = f"""
         CREATE OR REPLACE TABLE {tabela_recorte} AS
-          SELECT ST_Intersection(b.{coluna_geom_footprints}, a.{coluna_geom_aoi}) AS geom{cols_extras}
+          SELECT ST_Intersection({geom_b}, {geom_a}) AS geom{cols_extras}
           FROM {tabela_footprints} b, {tabela_aoi} a
-          WHERE ST_Intersects(b.{coluna_geom_footprints}, a.{coluna_geom_aoi})
+          WHERE ST_Intersects({geom_b}, {geom_a})
     """
 
     logger.info(
-        "[RECORTE] %s x %s -> %s",
-        tabela_footprints, tabela_aoi, tabela_recorte,
+        "[RECORTE] %s x %s -> %s (CRS alvo=%s)",
+        tabela_footprints, tabela_aoi, tabela_recorte, crs_alvo,
     )
     logger.debug("[RECORTE] SQL: %s", sql)
     t0 = time.perf_counter()
