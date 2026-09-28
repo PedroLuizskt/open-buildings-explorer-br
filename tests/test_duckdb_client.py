@@ -171,6 +171,25 @@ class TestExtensoes:
         r = duckdb_conn.execute("SELECT current_setting('ca_cert_file')").fetchone()
         assert r[0].replace("\\", "/") == str(custom_ca).replace("\\", "/")
 
+    def test_configurar_s3_usa_path_style_por_default(self, duckdb_conn) -> None:
+        """Regressao: bucket VIDA contem pontos no nome, o que quebra
+        virtual-hosted-style URLs sob HTTPS (SSL wildcard nao cobre
+        multiplos niveis de subdominio). Path-style resolve isso.
+        """
+        ddb.configurar_s3(duckdb_conn)
+        r = duckdb_conn.execute("SELECT current_setting('s3_url_style')").fetchone()
+        assert r[0] == "path"
+
+    def test_configurar_s3_aceita_vhost_explicito(self, duckdb_conn) -> None:
+        """Chamador pode forcar virtual-hosted-style se souber o que faz."""
+        ddb.configurar_s3(duckdb_conn, s3_url_style="vhost")
+        r = duckdb_conn.execute("SELECT current_setting('s3_url_style')").fetchone()
+        assert r[0] == "vhost"
+
+    def test_configurar_s3_rejeita_url_style_invalido(self, duckdb_conn) -> None:
+        with pytest.raises(ValueError, match="s3_url_style"):
+            ddb.configurar_s3(duckdb_conn, s3_url_style="virtual-hosted")
+
 
 # =============================================================================
 # Carregamento — testes offline com Parquet sintético
@@ -476,6 +495,24 @@ class TestNetworkS3:
     Excluídos por default (marker network). Rodar com:
         pytest -m network
     """
+
+    @pytest.mark.network
+    def test_fixture_completa_tem_path_style_aplicado(
+        self, duckdb_conn_completa
+    ) -> None:
+        """Sanidade: garante que a fixture duckdb_conn_completa aplicou
+        path-style URL via configurar_s3(). Se este teste falhar, a fixture
+        regrediu para setar SQL cru e ignorar o path-style — os testes de
+        carga real vao falhar com SSL error de novo.
+        """
+        r = duckdb_conn_completa.execute(
+            "SELECT current_setting('s3_url_style')"
+        ).fetchone()
+        assert r[0] == "path", (
+            f"Fixture nao aplicou path-style. Valor atual: {r[0]!r}. "
+            "Verifique que duckdb_conn_completa em conftest.py chama "
+            "ddb.configurar_s3(con)."
+        )
 
     @pytest.mark.network
     def test_contar_lesoto_via_s3(self, duckdb_conn_completa) -> None:

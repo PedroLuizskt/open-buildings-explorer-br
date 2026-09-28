@@ -130,6 +130,58 @@ e notebook demonstrativo. Nada em `docs/apostila/`.
 
 ---
 
+## ADR-008: Path-style URLs no cliente S3 (obrigatório para o bucket VIDA)
+
+**Data**: 2026-09-28
+
+**Contexto**: após implementar ADR-007 (certifi para CA bundle), os
+testes de rede contra o bucket S3 público VIDA continuaram falhando
+no Windows com ``IOException: SSL peer certificate or SSH remote key
+was not OK``. Investigação mais profunda revelou a causa raiz: **o
+bucket se chama ``us-west-2.opendata.source.coop`` e contém pontos no
+nome**.
+
+O DuckDB (como default AWS) usa virtual-hosted-style URLs:
+``<bucket>.s3.<region>.amazonaws.com``. Para nosso bucket, isso
+resulta em ``us-west-2.opendata.source.coop.s3.us-west-2.amazonaws.com``
+— hostname com múltiplos níveis de subdomínio. O certificado SSL
+wildcard da AWS é ``*.s3.<region>.amazonaws.com``, que cobre apenas
+UM nível de subdomínio. Por isso a validação SSL falha, mesmo com
+CA bundle correto.
+
+A própria [documentação AWS](https://docs.aws.amazon.com/AmazonS3/latest/userguide/VirtualHosting.html)
+reconhece: *"When a bucket name contains dots, its virtual-hosted-style
+URL doesn't work over HTTPS because of SSL certificate mismatch."*
+Recomendação oficial: usar path-style URLs
+(``s3.<region>.amazonaws.com/<bucket>/<path>``).
+
+**Decisão**: setar ``SET s3_url_style='path'`` por default no
+``configurar_s3()``. Adicionar parâmetro opcional ``s3_url_style``
+para permitir override (aceita ``"path"`` ou ``"vhost"``, com
+validação estrita).
+
+**Consequências**:
+- Positivas: resolve definitivamente o erro SSL para o bucket VIDA
+  no Windows (a causa raiz, não sintoma); solução alinhada com a
+  recomendação oficial AWS
+- Positivas: path-style é universalmente compatível — funciona para
+  todos os buckets, tenham pontos no nome ou não
+- Positivas: mudança é uma linha em configurar_s3(), zero impacto
+  em outras partes do código
+- Neutras: path-style é considerado "legacy" pela AWS para novos
+  buckets, mas continuará suportado indefinidamente (AWS adiou
+  planos de deprecation devido a casos exatamente como este)
+- Neutras: 3 novos testes garantem que a configuração é aplicada
+  corretamente e permite override
+
+**Ordem cronológica dos ADRs 006/007/008**: 006 estabeleceu a stack
+técnica; 007 identificou problema SSL parcial resolvido com certifi;
+008 identificou a causa raiz real (path-style) que ADR-007 mascarava
+mas não resolvia. Ambos os fixes ficam no código — 007 continua
+sendo boa prática (defesa em profundidade), 008 é o fix crítico.
+
+---
+
 ## ADR-007: Certifi como fonte do CA bundle para DuckDB httpfs (Windows)
 
 **Data**: 2026-09-28
@@ -150,10 +202,8 @@ de qualquer request S3. Aceitar parâmetro opcional ``ca_cert_file``
 para permitir override (ex: bundle corporativo interno).
 
 **Consequências**:
-- Positivas: pipeline S3 funciona out-of-the-box no Windows sem
-  intervenção manual; correção elegante que mantém validação SSL
-  (mais seguro que desabilitar SSL, que era a alternativa "quick fix"
-  mais comum na comunidade)
+- Positivas: garante validação SSL saudável mesmo em ambientes
+  corporativos com CA store desatualizado
 - Positivas: certifi já é dependência transitiva de ``requests``, que
   já estava no projeto — só formalizamos a dependência
 - Positivas: aceita path customizado permite compatibilidade com
@@ -161,6 +211,9 @@ para permitir override (ex: bundle corporativo interno).
 - Neutras: adiciona ~250 KB ao venv (tamanho do certifi)
 - Neutras: fallback gracioso (só emite AVISO se certifi ausente),
   não quebra em ambientes onde não é necessário
+- **Ver ADR-008**: sozinho, este fix não resolvia o erro SSL do
+  bucket VIDA porque a causa raiz era virtual-hosted-style URL com
+  bucket que tem pontos no nome. ADR-008 completa a solução.
 
 ---
 

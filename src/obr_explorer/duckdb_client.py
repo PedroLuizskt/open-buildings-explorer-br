@@ -231,28 +231,46 @@ def configurar_s3(
     con: duckdb.DuckDBPyConnection,
     region: str = config.S3_REGION,
     ca_cert_file: str | Path | None = None,
+    s3_url_style: str = "path",
 ) -> None:
     """Configura o cliente S3 do DuckDB para leitura anônima.
 
     O bucket VIDA é público, então não é necessária autenticação. Além
-    da região AWS, esta função também configura o CA bundle usado para
-    validação SSL — passo essencial no Windows.
+    da região AWS, esta função configura:
+
+    1. ``s3_url_style='path'`` — essencial para buckets com pontos no
+       nome (ver seção sobre path-style abaixo)
+    2. ``ca_cert_file`` via certifi — CA bundle atualizado para
+       validação SSL no Windows
+
+    Path-style vs virtual-hosted-style (obrigatório para o VIDA)
+    ------------------------------------------------------------
+
+    O bucket VIDA se chama ``us-west-2.opendata.source.coop`` —
+    contém pontos no nome. AWS S3 tem dois estilos de URL:
+
+    - **Virtual-hosted-style** (default AWS): ``<bucket>.s3.<region>.amazonaws.com``
+      Para nosso bucket, isso vira
+      ``us-west-2.opendata.source.coop.s3.us-west-2.amazonaws.com`` —
+      hostname com múltiplos níveis de subdomínio. O certificado SSL
+      wildcard da AWS é ``*.s3.<region>.amazonaws.com``, que cobre
+      apenas UM nível de subdomínio. Resultado: falha SSL com
+      ``IOException: SSL peer certificate or SSH remote key was not OK``.
+    - **Path-style**: ``s3.<region>.amazonaws.com/<bucket>/<path>``
+      Hostname único, coberto pelo wildcard. Funciona sempre.
+
+    A própria documentação da AWS recomenda path-style para buckets
+    com pontos no nome. Este projeto força path-style por default
+    porque o bucket VIDA sempre teve e sempre terá pontos no nome.
 
     Configuração de CA bundle (Windows)
     -----------------------------------
 
     O ``httpfs`` do DuckDB no Windows usa um bundle interno (via
-    libcurl compilado) que frequentemente falha em validar a cadeia
-    SSL do S3 da AWS, gerando ``IOException: SSL peer certificate or
-    SSH remote key was not OK``. A solução recomendada é apontar
-    explicitamente para o bundle mantido pela biblioteca ``certifi``,
-    que atualiza CAs com regularidade.
-
-    Se ``ca_cert_file`` for ``None`` (default), tenta importar
-    ``certifi`` e usar seu bundle. Se ``certifi`` não estiver
-    instalado, emite ``[AVISO]`` e segue sem configurar — pode
-    funcionar em Linux/Mac, mas falhará no Windows. Se
-    ``ca_cert_file`` for passado explicitamente, usa esse path.
+    libcurl compilado) que pode falhar em validar cadeias SSL em
+    ambientes corporativos. Apontar para o bundle mantido pela
+    biblioteca ``certifi`` é a solução recomendada. Se ``certifi``
+    não estiver instalado, emite ``[AVISO]`` e segue.
 
     Parameters
     ----------
@@ -263,9 +281,23 @@ def configurar_s3(
         Caminho para o arquivo CA bundle (formato PEM). Se ``None``,
         tenta usar ``certifi.where()``. Se ``certifi`` não estiver
         disponível, segue sem configurar.
+    s3_url_style : str, default ``"path"``
+        Estilo de URL para requests S3. Aceita ``"path"`` ou
+        ``"vhost"``. O default ``"path"`` é obrigatório para o
+        bucket VIDA (contém pontos no nome). Só mude se souber o
+        que está fazendo.
     """
-    logger.info("[S3] Configurando cliente S3 para regiao %s", region)
+    if s3_url_style not in ("path", "vhost"):
+        raise ValueError(
+            f"s3_url_style invalido: {s3_url_style!r}. Aceita 'path' ou 'vhost'."
+        )
+
+    logger.info(
+        "[S3] Configurando cliente S3 para regiao=%s, url_style=%s",
+        region, s3_url_style,
+    )
     con.execute(f"SET s3_region='{region}';")
+    con.execute(f"SET s3_url_style='{s3_url_style}';")
 
     if ca_cert_file is None:
         try:

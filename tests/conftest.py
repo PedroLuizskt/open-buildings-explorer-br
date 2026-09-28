@@ -72,18 +72,22 @@ def duckdb_conn():
 
 @pytest.fixture
 def duckdb_conn_completa():
-    """Conexão DuckDB in-memory com extensões httpfs + spatial + S3 configurado.
+    """Conexão DuckDB in-memory pronta para acesso ao S3 público.
 
-    Use apenas em testes marcados com ``@pytest.mark.network`` — a
-    primeira execução baixa a extensão httpfs, o que requer rede.
+    Usa exatamente as funcoes publicas do modulo duckdb_client (criar_conexao +
+    instalar_extensoes + configurar_s3) para garantir que a fixture reflita
+    a configuracao real que qualquer usuario do pacote teria. Chamar SQL
+    direto (SET s3_region=...) e um antipadrao aqui — descarta path-style,
+    CA bundle e qualquer outra configuracao que configurar_s3 aplica.
+
+    Use apenas em testes marcados com ``@pytest.mark.network`` — a primeira
+    execucao baixa a extensao httpfs, o que requer rede.
     """
-    import duckdb
+    from obr_explorer import duckdb_client as ddb
 
-    con = duckdb.connect(":memory:")
-    for ext in ("httpfs", "spatial"):
-        con.execute(f"INSTALL {ext};")
-        con.execute(f"LOAD {ext};")
-    con.execute("SET s3_region='us-west-2';")
+    con = ddb.criar_conexao()
+    ddb.instalar_extensoes(con)
+    ddb.configurar_s3(con)
     yield con
     con.close()
 
