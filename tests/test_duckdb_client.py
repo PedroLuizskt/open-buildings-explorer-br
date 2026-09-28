@@ -146,6 +146,31 @@ class TestExtensoes:
         r = duckdb_conn.execute("SELECT current_setting('s3_region')").fetchone()
         assert r[0] == config.S3_REGION
 
+    def test_configurar_s3_seta_ca_cert_file_via_certifi(self, duckdb_conn) -> None:
+        """Regressao: no Windows sem CA bundle configurado, requests S3
+        falham com SSL error. configurar_s3 deve automaticamente detectar
+        certifi e setar ca_cert_file no DuckDB.
+        """
+        import certifi
+
+        ddb.configurar_s3(duckdb_conn)
+        r = duckdb_conn.execute("SELECT current_setting('ca_cert_file')").fetchone()
+        # DuckDB retorna path com forward slashes; normalizamos para comparar
+        ca_configurado = r[0].replace("\\", "/")
+        ca_esperado = certifi.where().replace("\\", "/")
+        assert ca_configurado == ca_esperado
+
+    def test_configurar_s3_aceita_ca_cert_file_customizado(
+        self, duckdb_conn, tmp_path
+    ) -> None:
+        """Chamador pode passar path customizado (ex: bundle corporativo)."""
+        custom_ca = tmp_path / "meu_bundle.pem"
+        custom_ca.write_text("# fake bundle for test")
+        ddb.configurar_s3(duckdb_conn, ca_cert_file=custom_ca)
+
+        r = duckdb_conn.execute("SELECT current_setting('ca_cert_file')").fetchone()
+        assert r[0].replace("\\", "/") == str(custom_ca).replace("\\", "/")
+
 
 # =============================================================================
 # Carregamento — testes offline com Parquet sintético

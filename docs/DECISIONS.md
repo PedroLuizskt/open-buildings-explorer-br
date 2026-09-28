@@ -130,6 +130,40 @@ e notebook demonstrativo. Nada em `docs/apostila/`.
 
 ---
 
+## ADR-007: Certifi como fonte do CA bundle para DuckDB httpfs (Windows)
+
+**Data**: 2026-09-28
+
+**Contexto**: durante validação da Fase B no ambiente Windows do autor,
+os testes de rede contra o bucket S3 público VIDA falharam com
+``IOException: SSL peer certificate or SSH remote key was not OK``. A
+extensão ``httpfs`` do DuckDB no Windows usa um bundle de CAs interno
+(via libcurl compilado) que frequentemente falha em validar a cadeia
+SSL da AWS. Problema conhecido da comunidade DuckDB, especialmente
+comum em Windows corporativos com proxy mas também em Windows
+domésticos com bundle interno desatualizado.
+
+**Decisão**: adicionar ``certifi>=2024.0`` como dependência runtime
+explícita e modificar ``configurar_s3()`` para automaticamente detectar
+``certifi`` e configurar ``SET ca_cert_file=<path>`` no DuckDB antes
+de qualquer request S3. Aceitar parâmetro opcional ``ca_cert_file``
+para permitir override (ex: bundle corporativo interno).
+
+**Consequências**:
+- Positivas: pipeline S3 funciona out-of-the-box no Windows sem
+  intervenção manual; correção elegante que mantém validação SSL
+  (mais seguro que desabilitar SSL, que era a alternativa "quick fix"
+  mais comum na comunidade)
+- Positivas: certifi já é dependência transitiva de ``requests``, que
+  já estava no projeto — só formalizamos a dependência
+- Positivas: aceita path customizado permite compatibilidade com
+  ambientes corporativos que exigem bundle interno
+- Neutras: adiciona ~250 KB ao venv (tamanho do certifi)
+- Neutras: fallback gracioso (só emite AVISO se certifi ausente),
+  não quebra em ambientes onde não é necessário
+
+---
+
 ## ADR-006: Stack técnica DuckDB + GeoPandas + Leaflet
 
 **Data**: 2026-09-23

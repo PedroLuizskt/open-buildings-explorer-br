@@ -43,6 +43,7 @@ dependencies = [
     "shapely>=2.1",
     "pyproj>=3.7",
     "python-dotenv>=1.0",
+    "certifi>=2024.0",
 ]
 
 [project.optional-dependencies]

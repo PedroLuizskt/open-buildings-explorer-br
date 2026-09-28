@@ -230,21 +230,68 @@ def instalar_extensoes(
 def configurar_s3(
     con: duckdb.DuckDBPyConnection,
     region: str = config.S3_REGION,
+    ca_cert_file: str | Path | None = None,
 ) -> None:
     """Configura o cliente S3 do DuckDB para leitura anônima.
 
-    O bucket VIDA é público, então não é necessária autenticação. A
-    única configuração relevante é a região AWS onde o bucket vive
-    (``us-west-2`` para o bucket VIDA).
+    O bucket VIDA é público, então não é necessária autenticação. Além
+    da região AWS, esta função também configura o CA bundle usado para
+    validação SSL — passo essencial no Windows.
+
+    Configuração de CA bundle (Windows)
+    -----------------------------------
+
+    O ``httpfs`` do DuckDB no Windows usa um bundle interno (via
+    libcurl compilado) que frequentemente falha em validar a cadeia
+    SSL do S3 da AWS, gerando ``IOException: SSL peer certificate or
+    SSH remote key was not OK``. A solução recomendada é apontar
+    explicitamente para o bundle mantido pela biblioteca ``certifi``,
+    que atualiza CAs com regularidade.
+
+    Se ``ca_cert_file`` for ``None`` (default), tenta importar
+    ``certifi`` e usar seu bundle. Se ``certifi`` não estiver
+    instalado, emite ``[AVISO]`` e segue sem configurar — pode
+    funcionar em Linux/Mac, mas falhará no Windows. Se
+    ``ca_cert_file`` for passado explicitamente, usa esse path.
 
     Parameters
     ----------
     con : DuckDBPyConnection
     region : str, default valor de config.S3_REGION
         Região AWS do bucket.
+    ca_cert_file : str, Path or None, default=None
+        Caminho para o arquivo CA bundle (formato PEM). Se ``None``,
+        tenta usar ``certifi.where()``. Se ``certifi`` não estiver
+        disponível, segue sem configurar.
     """
     logger.info("[S3] Configurando cliente S3 para regiao %s", region)
     con.execute(f"SET s3_region='{region}';")
+
+    if ca_cert_file is None:
+        try:
+            import certifi
+
+            ca_cert_file = certifi.where()
+            logger.info("[S3] CA bundle detectado via certifi: %s", ca_cert_file)
+        except ImportError:
+            logger.warning(
+                "[AVISO] certifi nao instalado. No Windows isso pode causar "
+                "erro SSL ao acessar S3. Instale com 'pip install certifi' "
+                "ou passe ca_cert_file explicitamente."
+            )
+            return
+
+    ca_cert_str = str(ca_cert_file).replace("\\", "/")
+    try:
+        con.execute(f"SET ca_cert_file='{ca_cert_str}';")
+        logger.info("[S3] CA bundle configurado: %s", ca_cert_str)
+    except duckdb.Error as e:
+        # Versoes muito antigas do DuckDB podem nao ter esta variavel.
+        # Nesse caso, seguimos sem configurar — comportamento pre-fix.
+        logger.warning(
+            "[AVISO] DuckDB nao aceita ca_cert_file (versao antiga?): %s. "
+            "Se ocorrer erro SSL, atualize DuckDB.", e,
+        )
 
 
 # =============================================================================
