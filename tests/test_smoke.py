@@ -252,17 +252,24 @@ class TestAOIs:
 # CLI
 # =============================================================================
 class TestCLI:
-    def test_help_retorna_zero(self, capsys) -> None:
+    def test_help_sai_com_zero(self, capsys) -> None:
+        """argparse levanta SystemExit(0) em --help."""
+        import pytest as _pytest
         from obr_explorer.cli import main
 
-        assert main(["--help"]) == 0
-        capsys.readouterr()  # limpa o output
+        with _pytest.raises(SystemExit) as excinfo:
+            main(["--help"])
+        assert excinfo.value.code == 0
 
     def test_version_imprime_versao(self, capsys) -> None:
+        """argparse levanta SystemExit(0) em --version e imprime versao."""
+        import pytest as _pytest
         from obr_explorer import __version__
         from obr_explorer.cli import main
 
-        assert main(["--version"]) == 0
+        with _pytest.raises(SystemExit) as excinfo:
+            main(["--version"])
+        assert excinfo.value.code == 0
         out = capsys.readouterr().out
         assert __version__ in out
 
@@ -274,15 +281,18 @@ class TestCLI:
         assert "ROOT_DIR" in out
         assert "S3_BUCKET_URL" in out
 
-    def test_subcomando_desconhecido_retorna_um(self, capsys) -> None:
+    def test_subcomando_desconhecido_retorna_erro(self, capsys) -> None:
+        """argparse retorna codigo 2 para subcomando desconhecido."""
+        import pytest as _pytest
         from obr_explorer.cli import main
 
-        assert main(["comando_inexistente"]) == 1
+        with _pytest.raises(SystemExit):
+            main(["comando_inexistente"])
 
-    def test_subcomando_futuro_retorna_um_com_aviso(self, capsys) -> None:
-        """Subcomandos placeholder devem avisar que virão em fase futura."""
+    def test_analyze_sem_aoi_faz_argparse_reclamar(self, capsys) -> None:
+        """Sem --aoi obrigatorio, argparse aborta com SystemExit."""
+        import pytest as _pytest
         from obr_explorer.cli import main
 
-        assert main(["analyze"]) == 1
-        err = capsys.readouterr().err
-        assert "Fase" in err
+        with _pytest.raises(SystemExit):
+            main(["analyze"])

@@ -38,5 +38,11 @@ Módulos
 - ``obr_explorer.cli`` — interface de linha de comando (Fase C)
 """
 
-__version__ = "0.1.0"
-__all__ = ["__version__"]
+__version__ = "0.3.0"
+
+# Reexporta dataclasses e funcoes principais para permitir
+#   from obr_explorer import AOI, ResumoAOI
+from obr_explorer.aoi import AOI  # noqa: E402
+from obr_explorer.analysis import ComparacaoAOIs, ResumoAOI  # noqa: E402
+
+__all__ = ["__version__", "AOI", "ResumoAOI", "ComparacaoAOIs"]

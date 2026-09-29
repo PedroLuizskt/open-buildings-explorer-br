@@ -196,11 +196,23 @@ Os polígonos das AOIs estão versionados em `data/external/aois/` como GeoJSON,
 
 | Fase | Escopo | Status |
 |------|--------|--------|
-| **A** | Estrutura CCDS, `pyproject.toml`, `Makefile`, `tasks.ps1`, config, testes smoke, README inicial, GeoJSONs das AOIs | Em curso |
-| **B** | `duckdb_client.py` — conexão + extensões + queries base parametrizadas por país/AOI | A implementar |
-| **C** | `analysis.py` + `aoi.py` + CLI multi-comando (`download`, `analyze`, `export`) | A implementar |
+| **A** | Estrutura CCDS, `pyproject.toml`, `Makefile`, `tasks.ps1`, config, testes smoke, README inicial, GeoJSONs das AOIs | Concluída |
+| **B** | `duckdb_client.py` — conexão + extensões + queries base parametrizadas por país/AOI | Concluída |
+| **C** | `aoi.py` (gerenciamento + download IBGE) + `analysis.py` (queries de negócio) + CLI multi-comando completa | Concluída |
 | **D** | `webmap.py` — HTML Leaflet interativo comparativo Google vs Microsoft | A implementar |
 | **E** | Documentação robusta final, notebook demonstrativo, benchmark opcional DuckDB vs GeoPandas, GitHub Pages, polimento | A implementar |
+
+### Substituindo bounding boxes por polígonos oficiais IBGE
+
+Os GeoJSONs iniciais das AOIs em `data/external/aois/` foram bounding
+boxes aproximadas. A partir da Fase C, o comando `obr-explorer aoi fetch`
+baixa o polígono oficial da malha municipal IBGE 2022 e substitui o
+arquivo mantendo a metadata editorial:
+
+```bash
+obr-explorer aoi fetch --codigo 3111606 --nome cambuquira_mg --sobrescrever
+obr-explorer aoi fetch --codigo 3170206 --nome uberlandia_mg --sobrescrever
+```
 
 ## Convenções técnicas
 
