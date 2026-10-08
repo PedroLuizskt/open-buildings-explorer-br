@@ -7,6 +7,52 @@ decisões vão sendo adicionadas ao final, mantendo o histórico.
 
 ---
 
+## ADR-014: Duas camadas base (OSM + ESRI Satellite) no webmap
+
+**Data**: 2026-10-08
+
+**Contexto**: a Fase D entregou o webmap com uma única camada base
+(OpenStreetMap). OSM é excelente para orientação urbana (nomes de ruas,
+pontos de referência, limites administrativos), mas não permite
+verificar visualmente se os footprints extraídos pelos pipelines
+Google/Microsoft batem com as edificações reais vistas de cima. O
+autor pediu adicionar a camada ESRI World Imagery (satélite).
+
+**Decisão**: usar `L.control.layers` do Leaflet com duas camadas base
+mutuamente exclusivas:
+
+- **OpenStreetMap** — default, mantém o comportamento anterior
+- **ESRI World Imagery** —
+  `server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}`,
+  gratuito para uso não comercial segundo os [termos da Esri](https://www.esri.com/en-us/legal/terms/full-master-agreement),
+  attribution preservada
+
+Controle posicionado no canto superior direito (`position: "topright"`,
+`collapsed: false` para ficar sempre visível). Estilizado com paleta
+dark do painel via CSS override no `.leaflet-control-layers`.
+
+Ajuste colateral no estilo dos footprints: `fillOpacity` reduzida de
+`0.55` para `0.5` e `weight` aumentada de `0.5` para `0.7`. Isso dá
+melhor contraste sobre a imagem de satélite (fundo escuro em áreas
+urbanas) sem comprometer a leitura sobre OSM (fundo claro).
+
+**Consequências**:
+
+- Positivas: usuário pode validar visualmente a qualidade dos
+  footprints — vê a edificação real e o polígono extraído sobrepostos
+- Positivas: ESRI Imagery é padrão de facto no mundo GIS,
+  reconhecido pelos usuários técnicos imediatamente
+- Positivas: `L.control.layers` tem UX nativa do Leaflet, não precisa
+  JS customizado
+- Neutras: adiciona dependência de rede ao tile server da ESRI em
+  tempo de visualização. Se ESRI ficar indisponível, OSM continua
+  funcionando (fallback natural pelo controle de camadas)
+- Neutras: ESRI tiles são servidos sem HTTPS garantido em algumas
+  rotas antigas — attribution e termos de uso são responsabilidade
+  do deploy final
+
+---
+
 ## ADR-013: Encerramento do projeto e checklist de produção
 
 **Data**: 2026-10-08

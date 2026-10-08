@@ -8,6 +8,23 @@ O projeto segue versionamento semântico ([SemVer](https://semver.org/lang/pt-BR
 - **MINOR** (`0.X.0`): novas funcionalidades mantendo compatibilidade
 - **PATCH** (`0.0.X`): correções de bug mantendo compatibilidade
 
+## [0.6.1] — 2026-10-08
+
+### Adicionado
+- Camada base **ESRI World Imagery** (satélite) no webmap, alternável
+  com OpenStreetMap via `L.control.layers` nativo do Leaflet no canto
+  superior direito (ADR-014)
+- Estilo dark do controle de camadas Leaflet para combinar com paleta
+  do painel
+
+### Alterado
+- Estilo dos footprints: `weight` 0.5 → 0.7 e `fillOpacity` 0.55 → 0.5
+  para melhor contraste em ambas camadas base (OSM clara e satélite
+  escura)
+
+### Documentação
+- ADR-014: Duas camadas base (OSM + ESRI Satellite) no webmap
+
 ## [0.5.0] — 2026-10-08
 
 ### Adicionado

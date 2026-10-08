@@ -388,6 +388,32 @@ class TestGerarWebmapMulti:
         assert 'data-tab="analise"' in conteudo
         assert 'data-tab="detalhe"' in conteudo
 
+    def test_html_tem_duas_camadas_base_osm_e_esri(
+        self,
+        duckdb_conn,
+        tabela_recorte_para_webmap,
+        aoi_cambuquira,
+        tmp_path,
+    ) -> None:
+        """Regressao: webmap deve oferecer OSM E ESRI Satellite como
+        camadas base, com controle de camadas Leaflet para alternar."""
+        output = webmap.gerar_webmap_multi(
+            duckdb_conn,
+            aois_e_tabelas=[(aoi_cambuquira, tabela_recorte_para_webmap)],
+            output_dir=tmp_path,
+        )
+        conteudo = output.read_text(encoding="utf-8")
+        # OSM continua presente
+        assert "openstreetmap.org" in conteudo.lower()
+        # ESRI World Imagery
+        assert "server.arcgisonline.com" in conteudo
+        assert "World_Imagery" in conteudo
+        # Controle de camadas Leaflet
+        assert "L.control.layers" in conteudo
+        # Nomes amigaveis no controle
+        assert "OpenStreetMap" in conteudo
+        assert "ESRI Satellite" in conteudo
+
     def test_html_contem_payload_json_valido(
         self,
         duckdb_conn,

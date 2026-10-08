@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "obr-explorer"
-version = "0.6.0"
+version = "0.6.1"
 description = "Análise geoespacial em escala de bilhões de linhas com DuckDB sobre o dataset Google-Microsoft Open Buildings, com foco em cidades brasileiras e webmap comparativo."
 readme = "README.md"
 requires-python = ">=3.11"

@@ -801,6 +801,37 @@ _TEMPLATE_HTML = r"""<!DOCTYPE html>
     border: 1px solid rgba(255,255,255,.1);
   }
 
+  /* CONTROLE DE CAMADAS BASE (canto superior direito do mapa) */
+  .leaflet-control-layers {
+    background: rgba(6, 13, 22, .92) !important;
+    border: 1px solid var(--border2) !important;
+    border-radius: 10px !important;
+    box-shadow: 0 4px 16px rgba(0,0,0,.4) !important;
+    backdrop-filter: blur(6px);
+    color: var(--txt) !important;
+    font-family: var(--font-body) !important;
+    font-size: 12px !important;
+    padding: 6px 10px !important;
+  }
+  .leaflet-control-layers-expanded {
+    padding: 8px 12px !important;
+  }
+  .leaflet-control-layers-base label {
+    color: var(--txt) !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    padding: 4px 0 !important;
+    cursor: pointer !important;
+  }
+  .leaflet-control-layers input[type="radio"] {
+    accent-color: var(--blue) !important;
+    margin: 0 !important;
+  }
+  .leaflet-control-layers-separator {
+    border-top: 1px solid var(--border) !important;
+  }
+
   /* POPUP STYLE */
   .leaflet-popup-content-wrapper {
     background: #0a1520 !important;
@@ -1040,10 +1071,33 @@ const map = L.map("map", {
 });
 L.control.zoom({ position: "topleft" });
 
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+// Duas camadas base: OpenStreetMap (default, bom para orientacao com nomes
+// de ruas) e ESRI World Imagery (satelite, melhor para ver as edificacoes
+// sobre a imagem real). Usuario alterna via controle no canto superior direito.
+const baseOSM = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
   maxZoom: 19,
-}).addTo(map);
+});
+const baseEsri = L.tileLayer(
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+  {
+    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+    maxZoom: 19,
+  }
+);
+
+// OSM eh o default — adiciona ao mapa inicialmente
+baseOSM.addTo(map);
+
+// Controle de camadas base no canto superior direito
+L.control.layers(
+  {
+    "OpenStreetMap": baseOSM,
+    "ESRI Satellite": baseEsri,
+  },
+  null,  // sem overlays (os toggles Google/Microsoft estao no painel lateral)
+  { position: "topright", collapsed: false }
+).addTo(map);
 
 // =============================================================================
 // Camadas por AOI
@@ -1054,7 +1108,9 @@ let chartDonut = null;
 let chartHist = null;
 
 function estiloFootprint(cor) {
-  return { color: cor, weight: 0.5, fillColor: cor, fillOpacity: 0.55 };
+  // weight 0.7 e fillOpacity 0.5 funcionam bem em ambas camadas base
+  // (OSM clara e satelite escura) sem esconder detalhes relevantes.
+  return { color: cor, weight: 0.7, fillColor: cor, fillOpacity: 0.5 };
 }
 
 function popupFootprint(fonte, cor, feature, layer) {

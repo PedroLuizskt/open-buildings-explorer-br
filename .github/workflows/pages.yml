@@ -1,15 +1,16 @@
-# Deploy automatico do webmap/ para GitHub Pages.
+# Regenera e publica o webmap no GitHub Pages.
 #
-# Dispara em cada push para main que toque em webmap/**. Nao faz build —
-# o webmap eh HTML + GeoJSONs servivel diretamente por qualquer host
-# estatico. GitHub Pages simplesmente serve o conteudo da pasta como ela
-# chegou no commit.
+# Diferente de um workflow que so faz upload estatico, este executa o
+# pipeline DuckDB -> GeoJSON -> HTML dentro do runner usando o S3 publico
+# da VIDA (Google-Microsoft Open Buildings), garantindo que o Pages
+# sempre reflete o estado atual do codigo sem precisar versionar
+# GeoJSONs pesados no repositorio.
 #
 # Setup inicial (uma unica vez):
-#   1. Em Repository Settings > Pages > Source, escolher 'GitHub Actions'
-#   2. Fazer merge/push para main — este workflow cuida do resto
+#   1. Repository Settings > Pages > Source = GitHub Actions
+#   2. Push para main dispara este workflow
 #
-# URL publica apos primeiro deploy:
+# URL publica apos deploy:
 #   https://pedroluizskt.github.io/open-buildings-explorer-br/
 
 name: Deploy webmap para GitHub Pages
@@ -18,7 +19,9 @@ on:
   push:
     branches: [main]
     paths:
-      - 'webmap/**'
+      - 'src/**'
+      - 'data/external/aois/**'
+      - 'pyproject.toml'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -32,14 +35,54 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  build-and-deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Smoke test (confirma CLI instalada)
+        run: |
+          obr-explorer info
+          obr-explorer aoi list
+
+      - name: Gerar webmap a partir do S3 publico
+        env:
+          # DuckDB usa path-style no S3 (bucket com pontos no nome)
+          # Isso ja esta no codigo via configurar_s3(), mas documentar aqui
+          # mantem claro que o Actions nao requer credencial AWS.
+          PYTHONUNBUFFERED: "1"
+        run: |
+          obr-explorer webmap \
+            --aoi cambuquira_mg \
+            --aoi uberlandia_mg \
+            --db-path /tmp/dados_br.duckdb \
+            --output-dir ./webmap
+
+      - name: Verificar artefatos gerados
+        run: |
+          echo "=== Conteudo de webmap/ ==="
+          ls -lah webmap/
+          echo "=== GeoJSONs gerados ==="
+          ls -lah webmap/data/ || echo "pasta data/ vazia"
+          echo "=== Tamanho total ==="
+          du -sh webmap/
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
