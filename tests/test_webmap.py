@@ -1,8 +1,7 @@
-"""Testes do modulo webmap.
+"""Testes do modulo webmap (multi-AOI com dashboard).
 
 Usa a fixture ``mini_dataset_parquet`` + AOI Cambuquira para exercitar
-geracao end-to-end (recorte -> export GeoJSONs por fonte -> HTML).
-Testes offline — nao requerem acesso ao S3 real.
+geracao end-to-end offline — nao requerem acesso ao S3 real.
 """
 
 from __future__ import annotations
@@ -21,11 +20,7 @@ from obr_explorer.aoi import carregar_aoi
 def tabela_recorte_para_webmap(
     duckdb_conn, mini_dataset_parquet, path_geojson_cambuquira
 ):
-    """Prepara tabela 'recorte_test' pronta para gerar webmap.
-
-    Reusa o mini_dataset_parquet + AOI Cambuquira para ter uma tabela
-    com footprints Google e Microsoft dentro de um poligono real.
-    """
+    """Prepara tabela 'recorte_test' pronta para gerar webmap."""
     caminho = str(mini_dataset_parquet).replace("\\", "/")
     duckdb_conn.execute(f"CREATE TABLE fps AS SELECT * FROM '{caminho}'")
     ddb.carregar_aoi_geojson(duckdb_conn, path_geojson_cambuquira, "aoi_test")
@@ -231,6 +226,7 @@ class TestGerarWebmap:
         aoi_cambuquira,
         tmp_path,
     ) -> None:
+        """No multi-AOI, bounds vem no payload JSON por AOI, nao em constantes globais."""
         output_html = webmap.gerar_webmap_comparativo(
             duckdb_conn,
             tabela_recorte=tabela_recorte_para_webmap,
@@ -238,8 +234,8 @@ class TestGerarWebmap:
             output_dir=tmp_path,
         )
         conteudo = output_html.read_text(encoding="utf-8")
-        assert "BOUNDS_SW" in conteudo
-        assert "BOUNDS_NE" in conteudo
+        assert "bounds_sw" in conteudo  # chave no payload JSON
+        assert "bounds_ne" in conteudo
         assert "fitBounds" in conteudo
 
     def test_html_contem_canvas_renderer(
@@ -354,59 +350,154 @@ class TestGerarWebmap:
 
 
 # =============================================================================
-# Contexto do template
+# Multi-AOI: gerar_webmap_multi + payload JSON
 # =============================================================================
-class TestMontarContextoHtml:
-    def test_contexto_tem_todas_chaves_esperadas(
-        self, aoi_cambuquira
+class TestGerarWebmapMulti:
+    def test_rejeita_lista_vazia(self, duckdb_conn, tmp_path) -> None:
+        with pytest.raises(ValueError, match="vazia"):
+            webmap.gerar_webmap_multi(
+                duckdb_conn,
+                aois_e_tabelas=[],
+                output_dir=tmp_path,
+            )
+
+    def test_gera_html_com_uma_aoi(
+        self,
+        duckdb_conn,
+        tabela_recorte_para_webmap,
+        aoi_cambuquira,
+        tmp_path,
     ) -> None:
-        from obr_explorer.analysis import ResumoAOI
+        output = webmap.gerar_webmap_multi(
+            duckdb_conn,
+            aois_e_tabelas=[(aoi_cambuquira, tabela_recorte_para_webmap)],
+            output_dir=tmp_path,
+        )
+        assert output.exists()
+        conteudo = output.read_text(encoding="utf-8")
+        # Payload AOIS como JSON
+        assert "window.AOIS" in conteudo
+        # Chart.js carregado
+        assert "chart.js" in conteudo.lower() or "chart.umd" in conteudo
+        # Fontes Google
+        assert "Barlow+Condensed" in conteudo
+        # Seletor de AOI
+        assert 'id="aoi-select"' in conteudo
+        # Tabs
+        assert 'data-tab="geral"' in conteudo
+        assert 'data-tab="analise"' in conteudo
+        assert 'data-tab="detalhe"' in conteudo
 
-        resumo = ResumoAOI(
-            aoi_nome="Cambuquira/MG",
-            tabela="t",
-            total_footprints=12182,
-            por_fonte={"google": 11298, "microsoft": 884},
-            area_total_m2_por_fonte={"google": 1_093_409, "microsoft": 50_902},
-            area_media_m2_por_fonte={"google": 96.8, "microsoft": 57.6},
+    def test_html_contem_payload_json_valido(
+        self,
+        duckdb_conn,
+        tabela_recorte_para_webmap,
+        aoi_cambuquira,
+        tmp_path,
+    ) -> None:
+        import re as _re
+
+        output = webmap.gerar_webmap_multi(
+            duckdb_conn,
+            aois_e_tabelas=[(aoi_cambuquira, tabela_recorte_para_webmap)],
+            output_dir=tmp_path,
         )
-        ctx = webmap._montar_contexto_html(
-            aoi=aoi_cambuquira,
-            resumo=resumo,
-            arquivos_fonte={
-                "google": "data/x_google.geojson",
-                "microsoft": "data/x_microsoft.geojson",
-            },
-            min_area_m2=None,
-            simplify_tolerance=None,
+        conteudo = output.read_text(encoding="utf-8")
+        # Extrai o payload JSON da linha "window.AOIS = ...;"
+        match = _re.search(r"window\.AOIS\s*=\s*(\[.*?\]);", conteudo, _re.DOTALL)
+        assert match is not None, "Payload window.AOIS nao encontrado no HTML"
+        payload = json.loads(match.group(1))
+        assert isinstance(payload, list)
+        assert len(payload) == 1
+        aoi0 = payload[0]
+        assert aoi0["slug"] == "cambuquira_mg"
+        assert "resumo" in aoi0
+        assert "histograma" in aoi0
+        assert "arquivos_fonte" in aoi0
+        assert "area_km2_oficial" in aoi0
+
+    def test_geojsons_exportados_tem_area_m2(
+        self,
+        duckdb_conn,
+        tabela_recorte_para_webmap,
+        aoi_cambuquira,
+        tmp_path,
+    ) -> None:
+        """Regressao: GeoJSONs exportados devem ter area_m2 por feature
+        para alimentar popups ricos no webmap."""
+        webmap.gerar_webmap_multi(
+            duckdb_conn,
+            aois_e_tabelas=[(aoi_cambuquira, tabela_recorte_para_webmap)],
+            output_dir=tmp_path,
         )
-        chaves_esperadas = {
-            "aoi_nome", "aoi_slug", "aoi_tipologia", "aoi_populacao",
-            "aoi_area_km2", "aoi_ibge_code", "bounds_sw", "bounds_ne",
-            "total_footprints", "n_google", "n_microsoft",
-            "pct_google", "pct_microsoft",
-            "area_google_m2", "area_microsoft_m2",
-            "url_google", "url_microsoft",
-            "cor_google", "cor_microsoft",
-            "nota_decimacao",
+        caminho = tmp_path / "data" / f"{aoi_cambuquira.nome}_google.geojson"
+        with caminho.open(encoding="utf-8") as f:
+            gj = json.load(f)
+        assert gj["features"]
+        props = gj["features"][0]["properties"]
+        assert "area_m2" in props
+        assert isinstance(props["area_m2"], (int, float))
+        assert props["area_m2"] > 0
+
+
+class TestHistogramaAreas:
+    def test_histograma_retorna_buckets_fixos(
+        self,
+        duckdb_conn,
+        tabela_recorte_para_webmap,
+    ) -> None:
+        from obr_explorer import config
+
+        hist = webmap._computar_histograma_areas(
+            duckdb_conn,
+            tabela=tabela_recorte_para_webmap,
+            coluna_geom="geom",
+            coluna_fonte=config.COLUMN_SOURCE,
+            lat_media=-21.88,
+        )
+        # Estrutura: {fonte: {bucket: contagem}}
+        assert "google" in hist
+        assert "microsoft" in hist
+        buckets_esperados = {"<50", "50-100", "100-200", "200-500", ">=500"}
+        assert set(hist["google"].keys()) == buckets_esperados
+        assert set(hist["microsoft"].keys()) == buckets_esperados
+
+
+class TestPropertiesParaJson:
+    def test_tipos_primitivos_passam(self) -> None:
+        props = {
+            "nome": "Cambuquira",
+            "pop": 12609,
+            "ativo": True,
+            "nulo": None,
         }
-        assert chaves_esperadas.issubset(ctx.keys())
-        assert ctx["pct_google"] == pytest.approx(11298 / 12182 * 100, rel=1e-3)
+        out = webmap._properties_para_json(props)
+        assert out == props
 
-    def test_bounds_formato_leaflet(self, aoi_cambuquira) -> None:
-        from obr_explorer.analysis import ResumoAOI
+    def test_float_numpy_vira_float_puro(self) -> None:
+        try:
+            import numpy as np
+        except ImportError:
+            pytest.skip("numpy indisponivel")
+        out = webmap._properties_para_json({"area": np.float64(246.38)})
+        assert isinstance(out["area"], float)
+        assert out["area"] == pytest.approx(246.38)
 
-        resumo = ResumoAOI(
-            aoi_nome="x", tabela="t", total_footprints=0,
-            por_fonte={}, area_total_m2_por_fonte={}, area_media_m2_por_fonte={},
+
+class TestCompatComAPIAnterior:
+    def test_gerar_webmap_comparativo_ainda_funciona(
+        self,
+        duckdb_conn,
+        tabela_recorte_para_webmap,
+        aoi_cambuquira,
+        tmp_path,
+    ) -> None:
+        """Backward-compat: gerar_webmap_comparativo delega para gerar_webmap_multi."""
+        output = webmap.gerar_webmap_comparativo(
+            duckdb_conn,
+            tabela_recorte=tabela_recorte_para_webmap,
+            aoi=aoi_cambuquira,
+            output_dir=tmp_path,
         )
-        ctx = webmap._montar_contexto_html(
-            aoi=aoi_cambuquira, resumo=resumo,
-            arquivos_fonte={}, min_area_m2=None, simplify_tolerance=None,
-        )
-        # Leaflet espera [lat, lon], nao [lon, lat]
-        assert len(ctx["bounds_sw"]) == 2
-        assert len(ctx["bounds_ne"]) == 2
-        # Latitude de Cambuquira esta em torno de -21.9
-        assert -22 < ctx["bounds_sw"][0] < -21
-        assert -22 < ctx["bounds_ne"][0] < -21
+        assert output.exists()
+        assert output.name == "index.html"

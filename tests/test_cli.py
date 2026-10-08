@@ -100,12 +100,19 @@ class TestAnalyzeExport:
         rc = cli.main(["webmap", "--aoi", "aoi_ficticia"])
         assert rc == 3
 
-    def test_webmap_sem_aoi_argparse_reclama(self) -> None:
-        with pytest.raises(SystemExit):
-            cli.main(["webmap"])
+    def test_webmap_sem_aoi_usa_todas_disponiveis(self) -> None:
+        """Sem --aoi, webmap usa todas as AOIs em data/external/aois/.
 
-    def test_webmap_min_area_negativo_retorna_1(self, capsys, tmp_path) -> None:
-        """min-area-m2 negativo levanta ValueError na funcao -> codigo 1."""
+        Nao chamamos cli.main aqui porque o fluxo baixa dados do S3.
+        Apenas verifica que o parser aceita omissao de --aoi.
+        """
+        parser = cli._build_parser()
+        args = parser.parse_args(["webmap"])
+        # Com action='append' + default=None, args.aoi fica None
+        assert args.aoi is None
+
+    def test_webmap_min_area_negativo_retorna_erro(self, capsys, tmp_path) -> None:
+        """min-area-m2 negativo levanta ValueError na funcao -> codigo != 0."""
         rc = cli.main([
             "webmap", "--aoi", "cambuquira_mg",
             "--pular-carga", "--db-path", str(tmp_path / "nao_existe.duckdb"),
@@ -114,6 +121,165 @@ class TestAnalyzeExport:
         # Pode retornar 1 (ValueError), 3 (tabela nao existe) ou 4 (duckdb)
         # dependendo da ordem de validacao. O importante eh nao ser 0.
         assert rc != 0
+
+    def test_webmap_multiplos_aoi_action_append(self) -> None:
+        """--aoi pode ser repetido para incluir multiplas AOIs."""
+        parser = cli._build_parser()
+        args = parser.parse_args([
+            "webmap",
+            "--aoi", "cambuquira_mg",
+            "--aoi", "uberlandia_mg",
+        ])
+        assert args.aoi == ["cambuquira_mg", "uberlandia_mg"]
+
+
+# =============================================================================
+# Subcomandos db-info e db-prune
+# =============================================================================
+class TestDbInfo:
+    def test_db_info_sem_arquivo_retorna_3(self, capsys, tmp_path) -> None:
+        rc = cli.main(["db-info", "--db-path", str(tmp_path / "nao_existe.duckdb")])
+        assert rc == 3
+
+    def test_db_info_banco_vazio_retorna_0(self, tmp_path, capsys) -> None:
+        import duckdb
+
+        db_path = tmp_path / "vazio.duckdb"
+        con = duckdb.connect(str(db_path))
+        con.close()
+        rc = cli.main(["db-info", "--db-path", str(db_path)])
+        assert rc == 0
+
+    def test_db_info_mostra_tabelas(self, tmp_path, capsys) -> None:
+        import duckdb
+
+        db_path = tmp_path / "com_dados.duckdb"
+        con = duckdb.connect(str(db_path))
+        con.execute("CREATE TABLE recorte_cambuquira_mg AS SELECT 1 AS x;")
+        con.execute("CREATE TABLE footprints_bra AS SELECT 2 AS x UNION ALL SELECT 3;")
+        con.close()
+
+        rc = cli.main(["db-info", "--db-path", str(db_path)])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "recorte_cambuquira_mg" in out
+        assert "footprints_bra" in out
+
+
+class TestDbPrune:
+    def test_db_prune_sem_sim_apenas_lista(self, tmp_path, capsys) -> None:
+        import duckdb
+
+        db_path = tmp_path / "db.duckdb"
+        con = duckdb.connect(str(db_path))
+        con.execute("CREATE TABLE footprints_bra AS SELECT 1 AS x;")
+        con.execute("CREATE TABLE recorte_x AS SELECT 1 AS x;")
+        con.close()
+
+        rc = cli.main(["db-prune", "--db-path", str(db_path)])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "footprints_bra" in out
+        assert "--sim" in out
+
+        # Confirma que a tabela ainda existe (nao foi removida)
+        con = duckdb.connect(str(db_path))
+        tabelas = {r[0] for r in con.execute("SHOW TABLES").fetchall()}
+        con.close()
+        assert "footprints_bra" in tabelas
+
+    def test_db_prune_com_sim_remove(self, tmp_path, capsys) -> None:
+        import duckdb
+
+        db_path = tmp_path / "db.duckdb"
+        con = duckdb.connect(str(db_path))
+        con.execute("CREATE TABLE footprints_bra AS SELECT 1 AS x;")
+        con.execute("CREATE TABLE recorte_cambuquira_mg AS SELECT 1 AS x;")
+        con.close()
+
+        rc = cli.main(["db-prune", "--db-path", str(db_path), "--sim"])
+        assert rc == 0
+
+        # Confirma que footprints_bra foi removida mas recorte_... foi mantida
+        con = duckdb.connect(str(db_path))
+        tabelas = {r[0] for r in con.execute("SHOW TABLES").fetchall()}
+        con.close()
+        assert "footprints_bra" not in tabelas
+        assert "recorte_cambuquira_mg" in tabelas
+
+    def test_db_prune_sem_tabelas_pesadas(self, tmp_path, capsys) -> None:
+        import duckdb
+
+        db_path = tmp_path / "db.duckdb"
+        con = duckdb.connect(str(db_path))
+        con.execute("CREATE TABLE recorte_x AS SELECT 1 AS x;")
+        con.close()
+
+        rc = cli.main(["db-prune", "--db-path", str(db_path), "--sim"])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "Nenhuma" in out
+
+    def test_db_prune_sem_arquivo_retorna_3(self, tmp_path, capsys) -> None:
+        rc = cli.main(["db-prune", "--db-path", str(tmp_path / "nao_existe.duckdb")])
+        assert rc == 3
+
+
+class TestDbCompact:
+    def test_db_compact_sem_arquivo_retorna_3(self, tmp_path, capsys) -> None:
+        rc = cli.main(["db-compact", "--db-path", str(tmp_path / "nao_existe.duckdb")])
+        assert rc == 3
+
+    def test_db_compact_banco_vazio_retorna_0(self, tmp_path, capsys) -> None:
+        import duckdb
+        db_path = tmp_path / "vazio.duckdb"
+        con = duckdb.connect(str(db_path))
+        con.close()
+        rc = cli.main(["db-compact", "--db-path", str(db_path)])
+        assert rc == 0
+
+    def test_db_compact_sem_sim_apenas_mostra_estimativa(
+        self, tmp_path, capsys
+    ) -> None:
+        """Dry-run: lista tabelas e nao modifica nada."""
+        import duckdb
+        db_path = tmp_path / "db.duckdb"
+        con = duckdb.connect(str(db_path))
+        con.execute("CREATE TABLE recorte_cambuquira_mg AS SELECT 1 AS x;")
+        con.close()
+
+        size_antes = db_path.stat().st_size
+        rc = cli.main(["db-compact", "--db-path", str(db_path)])
+        assert rc == 0
+        assert db_path.stat().st_size == size_antes
+        out = capsys.readouterr().out
+        assert "--sim" in out
+        assert "recorte_cambuquira_mg" in out
+
+    def test_db_compact_com_sim_cria_backup_e_recria(
+        self, tmp_path, capsys
+    ) -> None:
+        """Compactacao de verdade: cria .bak e substitui original."""
+        import duckdb
+        db_path = tmp_path / "db.duckdb"
+        con = duckdb.connect(str(db_path))
+        con.execute("CREATE TABLE recorte_x AS SELECT 1 AS v;")
+        con.execute("CREATE TABLE recorte_y AS SELECT 2 AS v;")
+        con.close()
+
+        rc = cli.main(["db-compact", "--db-path", str(db_path), "--sim"])
+        assert rc == 0
+
+        # Original existe, backup foi criado
+        assert db_path.exists()
+        backup = db_path.with_suffix(db_path.suffix + ".bak")
+        assert backup.exists()
+
+        # Novo banco preserva as tabelas
+        con2 = duckdb.connect(str(db_path))
+        tabelas = {r[0] for r in con2.execute("SHOW TABLES").fetchall()}
+        con2.close()
+        assert tabelas == {"recorte_x", "recorte_y"}
 
 
 # =============================================================================

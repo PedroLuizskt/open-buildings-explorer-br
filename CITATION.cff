@@ -1,0 +1,59 @@
+# Citation File Format (CFF) — RFC do GitHub para "Cite this repository"
+# Spec: https://citation-file-format.github.io/
+# Validator: https://citation-file-format.github.io/cff-initializer-javascript/
+cff-version: 1.2.0
+message: "Se este projeto foi útil para o seu trabalho, por favor cite-o conforme abaixo."
+title: "open-buildings-explorer-br: Análise geoespacial em escala de bilhões de linhas com DuckDB sobre o dataset Google-Microsoft Open Buildings"
+abstract: >-
+  Projeto de ciência de dados geoespacial que consulta o dataset
+  Google-Microsoft Open Buildings (2,5 bilhões de edificações globais)
+  diretamente de bucket S3 público via DuckDB com extensões httpfs e
+  spatial. Produz webmap interativo multi-AOI com dashboard comparativo
+  entre as fontes Google e Microsoft para municípios brasileiros
+  (Cambuquira/MG e Uberlândia/MG como AOIs iniciais). Zero infraestrutura
+  externa — pipeline inteiramente in-process com DuckDB embutido.
+authors:
+  - family-names: "Rodrigues Vaz de Melo"
+    given-names: "Pedro Luiz"
+    affiliation: "Engenheiro Florestal e Cientista de Dados Geoespacial"
+    city: "Cambuquira"
+    region: "MG"
+    country: "BR"
+    orcid: ""  # preencher se tiver
+version: 0.5.0
+date-released: 2026-10-08
+license: MIT
+repository-code: "https://github.com/PedroLuizskt/open-buildings-explorer-br"
+keywords:
+  - duckdb
+  - geospatial
+  - open-buildings
+  - brazil
+  - geoparquet
+  - cloud-analytics
+  - leaflet
+  - webmap
+  - zero-copy-analytics
+references:
+  - type: dataset
+    title: "Google-Microsoft Open Buildings — A Combined Global Building Dataset"
+    authors:
+      - name: "VIDA (Vulnerability-Informed Decisions for Action)"
+    url: "https://beta.source.coop/repositories/vida/google-microsoft-open-buildings"
+    year: 2024
+  - type: article
+    title: "Continental-Scale Building Detection from High Resolution Satellite Imagery"
+    authors:
+      - family-names: "Sirko"
+        given-names: "W."
+    year: 2021
+    doi: "10.48550/arXiv.2107.12283"
+  - type: software
+    title: "DuckDB — an in-process SQL OLAP database management system"
+    authors:
+      - family-names: "Raasveldt"
+        given-names: "Mark"
+      - family-names: "Mühleisen"
+        given-names: "Hannes"
+    url: "https://duckdb.org/"
+    year: 2019

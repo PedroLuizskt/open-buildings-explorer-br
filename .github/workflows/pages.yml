@@ -1,0 +1,54 @@
+# Deploy automatico do webmap/ para GitHub Pages.
+#
+# Dispara em cada push para main que toque em webmap/**. Nao faz build —
+# o webmap eh HTML + GeoJSONs servivel diretamente por qualquer host
+# estatico. GitHub Pages simplesmente serve o conteudo da pasta como ela
+# chegou no commit.
+#
+# Setup inicial (uma unica vez):
+#   1. Em Repository Settings > Pages > Source, escolher 'GitHub Actions'
+#   2. Fazer merge/push para main — este workflow cuida do resto
+#
+# URL publica apos primeiro deploy:
+#   https://pedroluizskt.github.io/open-buildings-explorer-br/
+
+name: Deploy webmap para GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'webmap/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: webmap/
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

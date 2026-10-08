@@ -42,6 +42,7 @@ venv.bak/
 .coverage.*
 htmlcov/
 reports/coverage/
+reports/
 .hypothesis/
 .tox/
 .nox/
@@ -88,19 +89,30 @@ data/raw/*
 data/processed/*
 !data/processed/.gitkeep
 
-# AOIs (GeoJSONs pequenos) são versionadas — .gitkeep abaixo não impede
+# AOIs (GeoJSONs pequenos) sao versionadas; outros formatos pesados ficam de fora
 data/external/aois/*.gpkg
 data/external/aois/*.shp
 data/external/aois/*.shx
 data/external/aois/*.dbf
 data/external/aois/*.prj
+data/external/aois/*.cpg
+data/external/aois/*.qmd
 
 # =============================================================================
-# DuckDB (databases locais opcionais)
+# DuckDB (databases locais opcionais) e seus backups
 # =============================================================================
 *.duckdb
 *.duckdb.wal
 *.duckdb.tmp
+*.duckdb.bak
+*.duckdb-shm
+*.duckdb-wal
+
+# Backups genericos
+*.bak
+*.backup
+*.old
+*.orig
 
 # =============================================================================
 # Outputs geoespaciais grandes
@@ -110,9 +122,11 @@ data/external/aois/*.prj
 *.geoparquet
 !tests/**/*.parquet
 
-# GeoJSONs pequenos (AOIs) são versionados; grandes de output ficam de fora
+# GeoJSONs pequenos (AOIs) sao versionados; grandes de output ficam de fora
 webmap/data/*.geojson
 webmap/data/*.json
+webmap/index.html
+webmap/*.html
 
 # =============================================================================
 # Webmap gerado (mantido no repo, mas assets pesados fora)
@@ -125,3 +139,12 @@ webmap/*.html.bak
 # =============================================================================
 *.log
 logs/
+
+# =============================================================================
+# Zips e arquivos empacotados
+# =============================================================================
+*.zip
+*.tar.gz
+*.tgz
+*.7z
+*.rar

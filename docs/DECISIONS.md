@@ -7,6 +7,73 @@ decisões vão sendo adicionadas ao final, mantendo o histórico.
 
 ---
 
+## ADR-013: Encerramento do projeto e checklist de produção
+
+**Data**: 2026-10-08
+
+**Contexto**: após ADR-012 (reformulação do webmap multi-AOI), o
+projeto atingiu paridade de qualidade com a visão original (Fase E).
+Faltava registrar o conjunto de decisões "finais" que preparam o
+projeto para divulgação pública e uso de portfólio: deploy automático,
+documentação robusta, visibilidade e manutenibilidade.
+
+**Decisões**:
+
+1. **Deploy automático via GitHub Actions**: workflow
+   `.github/workflows/pages.yml` dispara em push para `main` tocando
+   em `webmap/**` ou no próprio workflow, usando as actions oficiais
+   `configure-pages`, `upload-pages-artifact` e `deploy-pages`.
+   Alternativa descartada: Pages a partir de pasta (`/webmap`) exige
+   configuração manual no Settings e não documenta a decisão.
+
+2. **CITATION.cff** no formato oficial do GitHub ("Cite this
+   repository"), com metadados em pt-BR mas estrutura padrão.
+   Inclui referências ao dataset VIDA, Google Open Buildings paper
+   (Sirko et al. 2021) e DuckDB (Raasveldt & Mühleisen 2019).
+
+3. **CHANGELOG.md** no formato Keep a Changelog + SemVer, com
+   todas as versões 0.1.0 → 0.5.0 referenciando os ADRs que
+   justificam cada mudança.
+
+4. **Notebook demonstrativo** `notebooks/01_demonstrativo.ipynb` com
+   21 células (8 markdown, 13 código) percorrendo o uso da API
+   Python sem passar pela CLI. Para quem quer entender o pipeline
+   por dentro ou integrar o projeto em scripts maiores.
+
+5. **Template de post LinkedIn** em `docs/LINKEDIN_POST.md` com três
+   variações (curta, técnica, narrativa) + checklist pré-publicação.
+   Nenhuma pretende ser publicada tal como está — orienta
+   personalização.
+
+6. **Novo subcomando `db-compact`**: `DROP TABLE` do DuckDB não
+   devolve espaço ao SO imediatamente (marca páginas como livres).
+   `db-compact` cria banco novo via `EXPORT DATABASE` +
+   `IMPORT DATABASE`, substitui o original, faz backup `.bak`
+   automático. Resolve a reclamação legítima do autor de que
+   `dados_br.duckdb` permanecia em 39 GB após `db-prune` bem-sucedido.
+
+7. **Nenhum novo recurso Python além do `db-compact`** — foco da
+   Fase E é documentação e visibilidade, não funcionalidade.
+
+**Consequências**:
+
+- Positivas: projeto cruza a linha "código funciona" para "cartão de
+  visita profissional" — alguém que chega pelo LinkedIn consegue
+  entender valor em 30 segundos
+- Positivas: GitHub Actions elimina fricção do deploy — commitar
+  recarrega webmap, zero esforço manual
+- Positivas: notebook abre caminho para educadores/pesquisadores
+  que queiram adaptar o projeto para outras AOIs ou outros países
+- Positivas: `db-compact` fecha o loop de gerenciamento de disco
+  que era um ponto genuíno de confusão
+- Neutras: README cresceu bastante (de ~200 para ~300 linhas),
+  mas organização numerada em 14 seções facilita navegação
+- Neutras: `.github/workflows/pages.yml` depende da conta GitHub do
+  autor; para forks funcionarem é preciso que o fork habilite Pages
+  em Settings. Documentado no README.
+
+---
+
 ## ADR-001: Repositório separado do monorepo principal
 
 **Data**: 2026-09-23
@@ -127,6 +194,84 @@ e notebook demonstrativo. Nada em `docs/apostila/`.
 - README precisa carregar mais peso — feito
 - Se depois surgir demanda por apostila, pode ser adicionada sem
   quebrar nada
+
+---
+
+## ADR-012: Webmap multi-AOI com dashboard analítico (reformulação da Fase D)
+
+**Data**: 2026-10-08
+
+**Contexto**: a Fase D entregou um webmap funcional, mas apenas para
+uma AOI por vez (cada `obr-explorer webmap` sobrescrevia o
+`index.html`). O autor pediu uma reformulação com:
+
+1. Switcher único para alternar entre Cambuquira e Uberlândia
+2. Painel lateral mais rico com dashboard analítico
+3. Popups com mais informação por footprint
+4. Padronização visual inspirada em um projeto anterior do autor
+   (visualização CHIRPS de precipitação)
+
+**Decisão**: reformular `webmap.py` em torno da função
+`gerar_webmap_multi(con, aois_e_tabelas, output_dir)` que gera um
+único HTML carregando todas as AOIs via payload JSON embutido. A
+função antiga `gerar_webmap_comparativo` vira wrapper de
+compatibilidade (delega para `gerar_webmap_multi` com lista de um
+elemento).
+
+**Novo layout do webmap** (inspirado no projeto CHIRPS do autor):
+
+- **Fontes**: Barlow Condensed (impacto) + Karla (corpo) via Google Fonts
+- **Paleta dark**: `#060d16` fundo, `#0d1b2a` cards, `#00b4d8` destaque,
+  `#1a3347` bordas sutis
+- **Header**: logo gradient (azul Google → azul Microsoft) + título +
+  badge com total global de edificações
+- **Seletor de AOI**: dropdown estilizado no topo do painel
+- **Tabs no painel**: Visão Geral / Análise / Detalhe
+  - **Visão Geral**: metadata da AOI em stat rows + KPI grid 2×2
+    (total, densidade/km², %Google, %Microsoft) + donut Chart.js
+    comparando contagens + narrativa interpretativa gerada no cliente
+  - **Análise**: histograma Chart.js com 5 buckets de área
+    (<50, 50-100, 100-200, 200-500, >=500 m²), áreas médias por fonte,
+    tabela comparativa lado a lado entre AOIs
+  - **Detalhe**: info do footprint clicado (fonte, área m² e hectares,
+    centroide lat/lon, AOI). Clicar em um polígono no mapa troca
+    automaticamente para esta tab
+- **Popups**: dark theme consistente com painel, chip colorido para
+  fonte, rows de "label: valor" para área m²/ha, coordenadas
+- **Legenda flutuante** no canto inferior esquerdo do mapa com toggles
+  de camada Google/Microsoft
+
+**Enriquecimento dos GeoJSONs exportados**: cada feature agora traz
+`area_m2` nas properties (calculada via `ST_Area` convertida de graus²
+para m² com ajuste pela latitude média da AOI). Isso alimenta os
+popups ricos e o cálculo client-side.
+
+**Novo subcomando CLI** `--aoi` com `action="append"`: pode ser
+repetido para incluir múltiplas AOIs no mesmo HTML. Sem `--aoi`, usa
+todas as AOIs em `data/external/aois/`.
+
+**Novos subcomandos de gerenciamento de disco** `db-info` e `db-prune`
+em resposta à constatação do autor de que `dados_br.duckdb` ocupa
+~40 GB. Explicação técnica: 141M registros × ~250 bytes (geometria WKB
++ metadata) = ~35 GB, mais overhead de páginas do DuckDB. É esperado.
+`db-prune` remove `footprints_<iso3>` mantendo `recorte_<aoi>`.
+
+**Consequências**:
+
+- Positivas: um único webmap carrega todas as AOIs — melhor UX, menos
+  arquivos, mais fácil de compartilhar/hospedar
+- Positivas: dashboard analítico eleva o projeto de "mapa interativo"
+  para "ferramenta de análise visual" — mais apropriado como peça de
+  portfólio profissional
+- Positivas: popups ricos com área por footprint dão o "wow factor"
+  que faltava
+- Positivas: `db-info`/`db-prune` resolvem a preocupação legítima de
+  disk space sem forçar o usuário a reinstalar/re-baixar
+- Neutras: template HTML cresceu de ~350 linhas para ~985 linhas
+  (adiciona Chart.js + payload JSON + três tabs + dashboard). Ainda é
+  um único `.replace()` sem Jinja — se crescer muito mais, migrar
+- Neutras: GeoJSONs agora têm coluna `area_m2` adicional, +8 bytes
+  por footprint. Para 500k footprints = +4 MB. Aceitável.
 
 ---
 
