@@ -199,6 +199,51 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_export.set_defaults(func=_cmd_export)
 
+    # ---- webmap -----------------------------------------------------------
+    p_webmap = subparsers.add_parser(
+        "webmap", help="Gera webmap HTML interativo (toggle Google vs Microsoft)",
+    )
+    p_webmap.add_argument("--aoi", required=True, help="Nome (slug) da AOI")
+    p_webmap.add_argument(
+        "--country-iso", default=config.DEFAULT_COUNTRY_ISO,
+        help=f"Codigo ISO-3 do pais (default: {config.DEFAULT_COUNTRY_ISO})",
+    )
+    p_webmap.add_argument(
+        "--output-dir", type=Path, default=None,
+        help="Diretorio de saida (default: ./webmap/)",
+    )
+    p_webmap.add_argument(
+        "--min-area-m2", type=float, default=None,
+        help=(
+            "Descarta footprints menores que N m2 antes de exportar. "
+            "Recomendado para AOIs grandes (ex: --min-area-m2 30 para Uberlandia)."
+        ),
+    )
+    p_webmap.add_argument(
+        "--simplify-tolerance", type=float, default=None,
+        help=(
+            "Tolerancia de simplificacao geometrica em graus (ex: 1e-5 ~= 1m). "
+            "Reduz vertices por poligono. Opcional."
+        ),
+    )
+    p_webmap.add_argument(
+        "--pular-carga",
+        action="store_true",
+        help=(
+            "Pula download+recorte e reusa tabela 'recorte_<aoi>' ja existente "
+            "em arquivo DuckDB persistente. Usar com --db-path."
+        ),
+    )
+    p_webmap.add_argument(
+        "--db-path", type=Path, default=None,
+        help=(
+            "Caminho para arquivo .duckdb persistente. Se passado, usa esse "
+            "banco em vez de in-memory. Util para evitar re-baixar o pais a "
+            "cada regeneracao do webmap durante iteracao visual."
+        ),
+    )
+    p_webmap.set_defaults(func=_cmd_webmap)
+
     return parser
 
 
@@ -367,6 +412,78 @@ def _cmd_export(args: argparse.Namespace) -> int:
         path = ddb.exportar_flatgeobuf(con, tabela_recorte, output)
 
     print(f"[OK] Exportado para: {path}")
+    con.close()
+    return 0
+
+
+def _cmd_webmap(args: argparse.Namespace) -> int:
+    """Gera webmap HTML comparativo Google vs Microsoft para uma AOI.
+
+    Fluxo:
+
+    1. Carrega AOI
+    2. Setup DuckDB (in-memory ou persistente)
+    3. [opcional, pode pular com --pular-carga] baixa footprints + recorta
+    4. Chama webmap.gerar_webmap_comparativo
+
+    Com ``--db-path`` + ``--pular-carga``, reusa um banco DuckDB previamente
+    criado por rodadas anteriores, evitando re-baixar os 141M footprints
+    do pais a cada iteracao visual no webmap.
+    """
+    from obr_explorer import aoi as aoi_mod
+    from obr_explorer import duckdb_client as ddb
+    from obr_explorer import webmap as webmap_mod
+
+    a = aoi_mod.carregar_aoi(args.aoi)
+
+    # Conexao
+    if args.db_path:
+        con = ddb.criar_conexao(in_memory=False, database_path=args.db_path)
+    else:
+        con = ddb.criar_conexao()
+    ddb.instalar_extensoes(con)
+    ddb.configurar_s3(con)
+
+    tabela_pais = f"footprints_{args.country_iso.lower()}"
+    tabela_aoi = f"aoi_{args.aoi}"
+    tabela_recorte = f"recorte_{args.aoi}"
+
+    if not args.pular_carga:
+        ddb.carregar_pais(con, country_iso=args.country_iso, tabela=tabela_pais)
+        ddb.carregar_aoi_geojson(con, a.path, tabela_aoi)
+        ddb.recortar_por_aoi(
+            con,
+            tabela_footprints=tabela_pais,
+            tabela_aoi=tabela_aoi,
+            tabela_recorte=tabela_recorte,
+        )
+    else:
+        # Verifica se a tabela de recorte existe no banco persistente
+        tabelas = ddb.listar_tabelas(con)
+        if tabela_recorte not in tabelas:
+            print(
+                f"[ERRO] --pular-carga foi passado mas a tabela "
+                f"{tabela_recorte!r} nao existe no banco {args.db_path}. "
+                f"Rode uma vez sem --pular-carga para popular, ou aponte "
+                f"--db-path para um banco onde essa tabela ja esteja.",
+                file=sys.stderr,
+            )
+            con.close()
+            return 3
+
+    # Gera webmap
+    output_html = webmap_mod.gerar_webmap_comparativo(
+        con,
+        tabela_recorte=tabela_recorte,
+        aoi=a,
+        output_dir=args.output_dir,
+        min_area_m2=args.min_area_m2,
+        simplify_tolerance=args.simplify_tolerance,
+    )
+
+    print(f"[OK] Webmap gerado: {output_html}")
+    print(f"     Abra no navegador ou sirva com:")
+    print(f"       python -m http.server 8000 --directory {output_html.parent}")
     con.close()
     return 0
 

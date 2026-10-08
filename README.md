@@ -199,19 +199,66 @@ Os polígonos das AOIs estão versionados em `data/external/aois/` como GeoJSON,
 | **A** | Estrutura CCDS, `pyproject.toml`, `Makefile`, `tasks.ps1`, config, testes smoke, README inicial, GeoJSONs das AOIs | Concluída |
 | **B** | `duckdb_client.py` — conexão + extensões + queries base parametrizadas por país/AOI | Concluída |
 | **C** | `aoi.py` (gerenciamento + download IBGE) + `analysis.py` (queries de negócio) + CLI multi-comando completa | Concluída |
-| **D** | `webmap.py` — HTML Leaflet interativo comparativo Google vs Microsoft | A implementar |
+| **D** | `webmap.py` — HTML Leaflet interativo comparativo Google vs Microsoft | Concluída |
 | **E** | Documentação robusta final, notebook demonstrativo, benchmark opcional DuckDB vs GeoPandas, GitHub Pages, polimento | A implementar |
 
-### Substituindo bounding boxes por polígonos oficiais IBGE
+### Gerar o webmap localmente
 
-Os GeoJSONs iniciais das AOIs em `data/external/aois/` foram bounding
-boxes aproximadas. A partir da Fase C, o comando `obr-explorer aoi fetch`
-baixa o polígono oficial da malha municipal IBGE 2022 e substitui o
-arquivo mantendo a metadata editorial:
+Após rodar a Fase C (`obr-explorer analyze` ou `obr-explorer export`), basta gerar
+o webmap para a AOI:
 
 ```bash
-obr-explorer aoi fetch --codigo 3111606 --nome cambuquira_mg --sobrescrever
-obr-explorer aoi fetch --codigo 3170206 --nome uberlandia_mg --sobrescrever
+# Cambuquira: 12k footprints, carrega direto
+obr-explorer webmap --aoi cambuquira_mg
+
+# Uberlandia: 538k footprints, melhor decimar por area minima
+obr-explorer webmap --aoi uberlandia_mg --min-area-m2 30 --simplify-tolerance 1e-5
+
+# Servir localmente para preview
+python -m http.server 8000 --directory webmap
+# Abrir http://localhost:8000
+```
+
+O webmap gerado inclui:
+
+- Camada base OpenStreetMap
+- Toggle entre camadas Google e Microsoft (cores oficiais das marcas)
+- Painel lateral com estatísticas da AOI (código IBGE, área oficial,
+  população, contagens por fonte, áreas edificadas)
+- Popups por footprint
+- Canvas renderer para suportar milhares de polígonos sem travar o navegador
+- Responsivo em mobile (painel colapsa em breakpoint estreito)
+- Autocontido: Leaflet via CDN, GeoJSONs em `webmap/data/`, servível
+  em qualquer host estático (GitHub Pages, Netlify, S3)
+
+### Resultados empíricos (snapshot IBGE 2022, dataset VIDA)
+
+| AOI | Área oficial | Edificações | Google | Microsoft | Densidade |
+|-----|-------------:|------------:|-------:|----------:|----------:|
+| Cambuquira/MG | 246 km² | 12.182 | 11.298 (92,7%) | 884 (7,3%) | ~49/km² |
+| Uberlândia/MG | 4.115 km² | 537.880 | — | — | ~131/km² |
+
+Contraste urbano-rural: Uberlândia tem **44× mais edificações** que Cambuquira
+em apenas **17× mais área**, resultando em densidade **2,7× maior** por km².
+
+### Polígonos oficiais IBGE (versionados no repo)
+
+Os GeoJSONs em `data/external/aois/` são **polígonos oficiais da
+malha municipal IBGE 2022 (BC250)**, reprojetados de SIRGAS 2000
+(EPSG:4674) para WGS84 (EPSG:4326) que é o CRS do dataset Open
+Buildings. Ficam versionados no repositório para reprodutibilidade
+total — quem clona o repo tem os polígonos imediatamente, sem
+depender da API IBGE estar online.
+
+Códigos IBGE (CD_MUN):
+- Cambuquira/MG: `3110707` — área oficial 246,380 km²
+- Uberlândia/MG: `3170206` — área oficial 4115,206 km²
+
+Para adicionar um novo município sob demanda, use o comando
+`obr-explorer aoi fetch` (baixa a malha oficial via API IBGE v3):
+
+```bash
+obr-explorer aoi fetch --codigo <IBGE> --nome <slug>_<uf> --sobrescrever
 ```
 
 ## Convenções técnicas

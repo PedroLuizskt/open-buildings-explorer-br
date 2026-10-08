@@ -64,7 +64,8 @@ class TestCarregarAOI:
 
     def test_carrega_uberlandia(self, aoi_dir: Path) -> None:
         a = aoi.carregar_aoi("uberlandia_mg", diretorio=aoi_dir)
-        assert a.properties["nome"] == "Uberlandia"
+        # Nome oficial IBGE mantem acento
+        assert a.properties["nome"] == "Uberlândia"
 
     def test_aoi_inexistente_levanta_file_not_found(
         self, aoi_dir: Path
@@ -193,8 +194,8 @@ class TestBaixarMalhaIBGE:
 
     @pytest.mark.network
     def test_baixa_cambuquira_real(self) -> None:
-        """Baixa a malha real de Cambuquira via API IBGE."""
-        gj = aoi.baixar_malha_ibge("3111606", qualidade="minima")
+        """Baixa a malha real de Cambuquira/MG (codigo IBGE 3110707) via API."""
+        gj = aoi.baixar_malha_ibge("3110707", qualidade="minima")
         assert gj["type"] == "FeatureCollection"
         assert len(gj["features"]) >= 1
         # Verifica que o poligono esta na regiao esperada (sul de MG)
@@ -216,14 +217,14 @@ class TestSalvarAOIDoIBGE:
         existente.write_text("{}")
         with pytest.raises(FileExistsError):
             aoi.salvar_aoi_do_ibge(
-                "3111606", "cambuquira_mg", {}, diretorio=tmp_path,
+                "3110707", "cambuquira_mg", {}, diretorio=tmp_path,
             )
 
     @pytest.mark.network
     def test_baixa_e_salva_cambuquira(self, tmp_path: Path) -> None:
         """Baixa Cambuquira via API IBGE e salva com metadata padrao."""
         destino = aoi.salvar_aoi_do_ibge(
-            codigo_ibge="3111606",
+            codigo_ibge="3110707",
             nome_slug="cambuquira_mg",
             metadata=aoi.METADATA_PADRAO["cambuquira_mg"],
             diretorio=tmp_path,
@@ -234,7 +235,7 @@ class TestSalvarAOIDoIBGE:
         # Verifica que a AOI gerada carrega corretamente
         a = aoi.carregar_aoi("cambuquira_mg", diretorio=tmp_path)
         assert a.properties["nome"] == "Cambuquira"
-        assert a.properties["ibge_code"] == "3111606"
+        assert a.properties["ibge_code"] == "3110707"
 
 
 class TestMetadataPadrao:
@@ -242,10 +243,13 @@ class TestMetadataPadrao:
         m = aoi.METADATA_PADRAO["cambuquira_mg"]
         assert m["nome"] == "Cambuquira"
         assert m["uf"] == "MG"
-        assert m["ibge_code"] == "3111606"
+        # Codigo IBGE correto de Cambuquira/MG: 3110707 (nao 3111606)
+        assert m["ibge_code"] == "3110707"
+        assert m["area_km2_oficial"] == 246.380
 
     def test_uberlandia_tem_metadata_padrao(self) -> None:
         m = aoi.METADATA_PADRAO["uberlandia_mg"]
         assert m["nome"] == "Uberlandia"
         assert m["uf"] == "MG"
         assert m["ibge_code"] == "3170206"
+        assert m["area_km2_oficial"] == 4115.206

@@ -26,14 +26,15 @@ def aoi_dir(repo_root) -> Path:
 @pytest.fixture
 def geojson_cambuquira(aoi_dir) -> dict:
     """Carrega o GeoJSON de Cambuquira/MG como dict."""
-    with (aoi_dir / "cambuquira_mg.geojson").open() as f:
+    # encoding='utf-8' explicito: no Windows o default eh cp1252.
+    with (aoi_dir / "cambuquira_mg.geojson").open(encoding="utf-8") as f:
         return json.load(f)
 
 
 @pytest.fixture
 def geojson_uberlandia(aoi_dir) -> dict:
     """Carrega o GeoJSON de Uberlândia/MG como dict."""
-    with (aoi_dir / "uberlandia_mg.geojson").open() as f:
+    with (aoi_dir / "uberlandia_mg.geojson").open(encoding="utf-8") as f:
         return json.load(f)
 
 

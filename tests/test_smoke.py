@@ -205,7 +205,8 @@ class TestAOIs:
         "fixture_name,nome_esperado,uf_esperada",
         [
             ("geojson_cambuquira", "Cambuquira", "MG"),
-            ("geojson_uberlandia", "Uberlandia", "MG"),
+            # Nome IBGE oficial de Uberlandia mantem o acento
+            ("geojson_uberlandia", "Uberlândia", "MG"),
         ],
     )
     def test_metadata_essencial_presente(
@@ -218,6 +219,64 @@ class TestAOIs:
         assert "tipologia" in props
         assert "populacao_2022" in props
         assert "descricao" in props
+
+    def test_regressao_nao_ha_open_sem_encoding(self, repo_root) -> None:
+        """Regressao: todos os <path>.open() em codigo real devem ter encoding=.
+
+        No Windows, o encoding default do Python eh cp1252 (nao UTF-8),
+        causando corrupcao de caracteres acentuados ao ler GeoJSONs
+        gerados com UTF-8. Este teste usa AST para varrer src/ e tests/
+        procurando chamadas <path>.open(...) em modo texto sem argumento
+        encoding, e falha se encontrar.
+
+        Modo binario ('rb', 'wb', 'ab') eh permitido sem encoding
+        (encoding nao se aplica a bytes).
+        """
+        import ast
+
+        def extrair_mode_arg(call: ast.Call) -> str | None:
+            """Retorna o valor do argumento 'mode' da chamada, se for literal."""
+            if call.args:
+                primeiro = call.args[0]
+                if isinstance(primeiro, ast.Constant) and isinstance(primeiro.value, str):
+                    return primeiro.value
+            for kw in call.keywords:
+                if kw.arg == "mode" and isinstance(kw.value, ast.Constant):
+                    return kw.value.value if isinstance(kw.value.value, str) else None
+            return None
+
+        def tem_encoding_arg(call: ast.Call) -> bool:
+            return any(kw.arg == "encoding" for kw in call.keywords)
+
+        suspeitos: list[str] = []
+        for diretorio in ("src", "tests"):
+            for py_file in (repo_root / diretorio).rglob("*.py"):
+                try:
+                    tree = ast.parse(py_file.read_text(encoding="utf-8"))
+                except SyntaxError:
+                    continue
+                for node in ast.walk(tree):
+                    if not isinstance(node, ast.Call):
+                        continue
+                    func = node.func
+                    # Procura por <algo>.open(...)
+                    if not (isinstance(func, ast.Attribute) and func.attr == "open"):
+                        continue
+                    mode = extrair_mode_arg(node)
+                    # Modo binario nao precisa de encoding
+                    if mode and "b" in mode:
+                        continue
+                    if tem_encoding_arg(node):
+                        continue
+                    suspeitos.append(
+                        f"{py_file.relative_to(repo_root)}:{node.lineno}"
+                    )
+
+        assert not suspeitos, (
+            "Encontrados <path>.open(...) sem encoding= explicito. No Windows "
+            "isso quebra com caracteres acentuados em GeoJSONs. Adicione "
+            "encoding='utf-8':\n  " + "\n  ".join(suspeitos)
+        )
 
     @pytest.mark.parametrize(
         "fixture_name",

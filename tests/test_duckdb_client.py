@@ -420,7 +420,7 @@ class TestExport:
 
         import json
 
-        with path_final.open() as f:
+        with path_final.open(encoding="utf-8") as f:
             gj = json.load(f)
         assert gj["type"] == "FeatureCollection"
         assert len(gj["features"]) == 20
@@ -452,7 +452,7 @@ class TestExport:
 
         import json
 
-        with output.open() as f:
+        with output.open(encoding="utf-8") as f:
             gj = json.load(f)
         # Cada feature deve ter apenas bf_source em properties
         props = gj["features"][0]["properties"]

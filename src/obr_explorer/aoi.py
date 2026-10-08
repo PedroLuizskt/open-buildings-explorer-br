@@ -50,6 +50,7 @@ Convenções
 
 from __future__ import annotations
 
+import gzip
 import json
 import logging
 import urllib.error
@@ -154,7 +155,9 @@ def listar_aois(diretorio: Path | None = None) -> list[dict[str, Any]]:
     aois = []
     for arquivo in sorted(diretorio.glob("*.geojson")):
         try:
-            with arquivo.open() as f:
+            # encoding='utf-8' explicito: no Windows o default eh cp1252,
+            # o que corrompe caracteres acentuados nos GeoJSONs.
+            with arquivo.open(encoding="utf-8") as f:
                 gj = json.load(f)
             props = gj.get("features", [{}])[0].get("properties", {})
             aois.append({
@@ -201,7 +204,8 @@ def carregar_aoi(nome: str, diretorio: Path | None = None) -> AOI:
             f"Disponiveis: {disponiveis or 'nenhuma'}"
         )
 
-    with path.open() as f:
+    # encoding='utf-8' explicito: no Windows o default eh cp1252.
+    with path.open(encoding="utf-8") as f:
         gj = json.load(f)
 
     validar_geojson_aoi(gj, nome=nome)
@@ -355,9 +359,21 @@ def baixar_malha_ibge(
     logger.info("[IBGE] Baixando malha %s (qualidade=%s)", codigo, qualidade)
     logger.debug("[IBGE] URL: %s", url)
 
+    # A API IBGE frequentemente responde com gzip (Content-Encoding: gzip)
+    # mesmo sem o cliente pedir. urllib nao descomprime automaticamente,
+    # entao anunciamos Accept-Encoding: identity para pedir payload cru
+    # e, se ainda vier comprimido (magic bytes 0x1f 0x8b), descomprimimos
+    # manualmente.
+    req = urllib.request.Request(url, headers={
+        "Accept": "application/vnd.geo+json, application/json",
+        "Accept-Encoding": "identity",
+        "User-Agent": "obr-explorer/0.3 (github.com/PedroLuizskt/open-buildings-explorer-br)",
+    })
+
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             payload = resp.read()
+            content_encoding = resp.headers.get("Content-Encoding", "").lower()
     except urllib.error.HTTPError as e:
         raise RuntimeError(
             f"API IBGE retornou HTTP {e.code} para codigo {codigo!r}. "
@@ -368,6 +384,11 @@ def baixar_malha_ibge(
             f"Falha de rede ao acessar API IBGE: {e}. "
             "Verifique conexao e proxy."
         ) from e
+
+    # Descomprimir se veio gzipado (por header ou magic bytes 0x1f 0x8b)
+    if content_encoding == "gzip" or payload[:2] == b"\x1f\x8b":
+        logger.debug("[IBGE] Payload gzipado, descomprimindo")
+        payload = gzip.decompress(payload)
 
     try:
         gj = json.loads(payload)
@@ -469,7 +490,8 @@ METADATA_PADRAO: dict[str, dict[str, Any]] = {
     "cambuquira_mg": {
         "nome": "Cambuquira",
         "uf": "MG",
-        "ibge_code": "3111606",
+        "ibge_code": "3110707",
+        "area_km2_oficial": 246.380,
         "tipologia": "municipio_rural_pequeno",
         "populacao_2022": 12609,
         "descricao": (
@@ -482,6 +504,7 @@ METADATA_PADRAO: dict[str, dict[str, Any]] = {
         "nome": "Uberlandia",
         "uf": "MG",
         "ibge_code": "3170206",
+        "area_km2_oficial": 4115.206,
         "tipologia": "cidade_media_urbana_consolidada",
         "populacao_2022": 713224,
         "descricao": (
@@ -492,6 +515,11 @@ METADATA_PADRAO: dict[str, dict[str, Any]] = {
     },
 }
 """Metadata editorial padrão para as AOIs configuradas no projeto.
+
+Códigos IBGE (``CD_MUN``, 7 dígitos):
+
+- Cambuquira/MG: **3110707** (não confundir com 3111606, que é outro município)
+- Uberlândia/MG: **3170206**
 
 Uso: ``salvar_aoi_do_ibge(codigo, slug, METADATA_PADRAO[slug])``.
 """

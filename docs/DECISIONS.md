@@ -130,6 +130,167 @@ e notebook demonstrativo. Nada em `docs/apostila/`.
 
 ---
 
+## ADR-011: Webmap como HTML autocontido com Canvas renderer e decimação opcional
+
+**Data**: 2026-10-07
+
+**Contexto**: a Fase D precisava entregar um webmap comparativo
+Google × Microsoft como cartão de visita visual do projeto. Três
+decisões técnicas se impuseram ao analisar os números reais:
+
+- **Cambuquira**: 12.182 footprints — carregável como GeoJSON direto
+- **Uberlândia**: 537.880 footprints — carregamento cru trava navegadores
+- Deploy via **GitHub Pages**: zero backend, zero build step
+
+**Decisões**:
+
+1. **HTML autocontido com Leaflet via CDN** (não React/Vite/bundler).
+   Um `index.html` + `data/*.geojson` servível por qualquer host estático.
+   Zero dependência Node, zero etapa de build. Para o escopo (toggle de
+   camadas, popups, painel lateral), isso é suficiente e mais robusto que
+   stack moderna que exige CI.
+
+2. **Canvas renderer** (`L.canvas` + `preferCanvas: true`) como default,
+   não SVG. Com 500k polígonos, SVG renderer trava — cada polígono vira
+   um elemento DOM e o browser engasga no reflow. Canvas renderiza tudo
+   num único `<canvas>` com performance 10-100× melhor.
+
+3. **Decimação opcional** via flags CLI `--min-area-m2` e
+   `--simplify-tolerance`. Para Cambuquira ambos podem ser `None` (default),
+   todos os 12k footprints cabem confortavelmente. Para Uberlândia, 30 m²
+   de mínimo descarta anexos pequenos e galpões irrelevantes, mantendo
+   edificações significativas. `ST_SimplifyPreserveTopology` com tolerância
+   `1e-5` (~1m em WGS84) reduz vértices por polígono.
+
+4. **Flag `--pular-carga` + `--db-path`** para iteração visual rápida.
+   Baixar 141M footprints do Brasil leva ~30 min. Com um banco DuckDB
+   persistente, o pipeline carrega uma vez e reusa a tabela de recorte
+   em todas as iterações seguintes do webmap (ajuste de estilo, de
+   decimação, etc.). Essencial para desenvolvimento iterativo.
+
+5. **Cores oficiais das marcas**: Google `#4285F4`, Microsoft `#00A4EF`.
+   Isso cria associação visual imediata e preserva significado quando
+   o legenda não está visível (ex: screenshots).
+
+**Consequências**:
+
+- Positivas: webmap funciona out-of-the-box em qualquer navegador
+  moderno sem build step
+- Positivas: `python -m http.server --directory webmap` para preview
+  local instantâneo
+- Positivas: deploy via GitHub Pages é `git push` sem workflow CI
+- Positivas: decimação opcional permite escalar para AOIs grandes
+  mantendo UX fluida; AOIs pequenas usam fidelidade total
+- Positivas: `--db-path` + `--pular-carga` acelera iteração visual
+  de minutos para segundos
+- Neutras: Leaflet via CDN depende de unpkg estar online no cliente;
+  aceitável porque Leaflet é dependência padrão da indústria
+- Neutras: HTML gerado programaticamente usa `.replace()` em vez de
+  Jinja para evitar dependência extra; funciona bem para o volume de
+  interpolação atual mas se o template crescer muito, migrar para
+  Jinja seria incremental
+
+---
+
+## ADR-010: encoding='utf-8' explícito em todas as chamadas .open()
+
+**Data**: 2026-10-01
+
+**Contexto**: ao rodar a suíte de testes no Windows do autor, dois
+testes falharam com erro de encoding:
+
+```
+assert 'UberlÃ¢ndia' == 'Uberlândia'
+```
+
+Causa: o encoding default do ``open()`` no Python depende do sistema
+operacional (``locale.getpreferredencoding()``). No Linux/Mac é
+UTF-8; no Windows é **cp1252** por padrão. Os GeoJSONs das AOIs são
+escritos em UTF-8 (padrão RFC 8259), mas chamadas ``path.open()`` sem
+argumento ``encoding`` liam com cp1252 no Windows, corrompendo
+caracteres acentuados como "Uberlândia" → "UberlÃ¢ndia".
+
+**Decisão**: adicionar ``encoding="utf-8"`` **explícito** em TODA
+chamada ``<path>.open(...)`` em modo texto no código do projeto.
+Modo binário (``"rb"``, ``"wb"``) é exceção porque ``encoding`` não
+se aplica a bytes.
+
+Além disso, adicionar teste de regressão
+``test_regressao_nao_ha_open_sem_encoding`` que usa AST para varrer
+``src/`` e ``tests/`` e falhar se encontrar qualquer
+``<path>.open()`` em modo texto sem ``encoding=``.
+
+**Consequências**:
+- Positivas: comportamento idêntico entre Linux/Mac/Windows,
+  elimina classe inteira de bugs sutis de I/O de texto
+- Positivas: AST-based regression test pega 100% dos casos, sem
+  falsos positivos de strings/comentários (análise sintática, não
+  textual)
+- Positivas: código fica auto-documentado — leitor vê que o arquivo
+  é tratado como UTF-8 sem precisar inferir
+- Neutras: um pouco mais verboso que ``open()`` nu, mas é prática
+  recomendada por PEP 686 (``PYTHONUTF8=1``) e vai virar default
+  em Python 3.15
+- Neutras: PEP 686 "Make UTF-8 mode default" vai eliminar esse
+  problema automaticamente em versões futuras do Python, mas até
+  lá o fix explícito é a solução canônica
+
+---
+
+## ADR-009: Polígonos oficiais IBGE via shapefile local (não via API)
+
+**Data**: 2026-09-29
+
+**Contexto**: durante a Fase C, foram implementadas duas formas de
+substituir as bounding boxes iniciais pelos polígonos oficiais IBGE
+das AOIs:
+
+- **Via API v3 do IBGE**: comando ``obr-explorer aoi fetch --codigo <IBGE>``.
+  Conveniente para adicionar novos municípios sob demanda, mas dependia
+  de rede e da estabilidade da API.
+- **Via shapefile local**: baixar a malha municipal 2022 (BC250) do
+  portal do IBGE, importar no QGIS, exportar cada município como
+  shapefile individual e converter para GeoJSON.
+
+Durante a validação da Fase C, dois problemas surgiram com a via API:
+
+1. **Bug de encoding**: a API IBGE retornava payload gzipado sem
+   declarar ``Content-Encoding: gzip`` (ou com anti-cache mangling),
+   causando ``UnicodeDecodeError`` no parse JSON. Correção requereu
+   detectar magic bytes ``0x1f 0x8b`` e descomprimir manualmente.
+2. **Código IBGE incorreto no METADATA_PADRAO**: assumimos código
+   ``3111606`` para Cambuquira, quando o correto é ``3110707``
+   (erro só descoberto ao ler o shapefile oficial). ``3111606``
+   pertence a outro município.
+
+**Decisão**: usar os **shapefiles oficiais IBGE 2022 (BC250)**
+exportados manualmente do QGIS como fonte primária dos polígonos das
+AOIs. O comando CLI ``obr-explorer aoi fetch`` (com bug do gzip
+corrigido) permanece disponível para adicionar novos municípios sob
+demanda no futuro, mas os polígonos de Cambuquira e Uberlândia ficam
+versionados como GeoJSON no repositório para reprodutibilidade total.
+
+Isso também simplifica setup: quem clona o repo tem os polígonos
+oficiais imediatamente, sem depender da API IBGE estar online.
+
+**Consequências**:
+- Positivas: reprodutibilidade absoluta — polígonos versionados no
+  Git, congelados na versão IBGE 2022 usada durante o desenvolvimento
+- Positivas: setup zero-dependência para as AOIs padrão
+  (Cambuquira e Uberlândia)
+- Positivas: metadata rica extraída direto do shapefile
+  (região intermediária, região geográfica imediata, código IBGE,
+  área km² oficial) — mais que a API v3 devolve
+- Positivas: reprojeção controlada (SIRGAS 2000 → WGS84) documentada
+  no ``properties.fonte_poligono``
+- Neutras: arquivos GeoJSON versionados são maiores (245 KB Cambuquira,
+  643 KB Uberlândia). Aceitável para 2 municípios; se subir para 20+
+  AOIs, considerar Git LFS ou download on-demand
+- Neutras: correção do bug de gzip fica no código como defesa em
+  profundidade para uso futuro do ``aoi fetch``
+
+---
+
 ## ADR-008: Path-style URLs no cliente S3 (obrigatório para o bucket VIDA)
 
 **Data**: 2026-09-28

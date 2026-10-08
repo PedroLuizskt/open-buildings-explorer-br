@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Open Buildings Explorer — Uberlândia/MG</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""/>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #1a1a1a;
+    background: #0b1220;
+  }
+
+  #app {
+    display: flex;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  #map {
+    flex: 1;
+    height: 100%;
+    background: #e8ecef;
+  }
+
+  aside {
+    width: 340px;
+    min-width: 340px;
+    background: #0f172a;
+    color: #e2e8f0;
+    overflow-y: auto;
+    padding: 24px;
+    border-left: 1px solid #1e293b;
+  }
+
+  aside h1 {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0 0 4px 0;
+    color: #f8fafc;
+  }
+
+  aside .subtitulo {
+    font-size: 13px;
+    color: #94a3b8;
+    margin: 0 0 20px 0;
+  }
+
+  .secao {
+    margin-bottom: 24px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #1e293b;
+  }
+
+  .secao:last-child { border-bottom: none; }
+
+  .secao h2 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #64748b;
+    font-weight: 600;
+    margin: 0 0 12px 0;
+  }
+
+  .meta-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 12px;
+    font-size: 13px;
+  }
+
+  .meta-grid dt { color: #94a3b8; }
+  .meta-grid dd { margin: 0; color: #e2e8f0; }
+
+  .stat-fonte {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .stat-fonte:last-child { margin-bottom: 0; }
+
+  .stat-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    margin-top: 4px;
+    flex-shrink: 0;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+
+  .stat-corpo { flex: 1; }
+
+  .stat-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #94a3b8;
+    margin-bottom: 2px;
+  }
+
+  .stat-num {
+    font-size: 22px;
+    font-weight: 600;
+    color: #f8fafc;
+    line-height: 1.1;
+  }
+
+  .stat-pct {
+    font-size: 13px;
+    color: #94a3b8;
+    margin-left: 6px;
+    font-weight: 400;
+  }
+
+  .stat-area {
+    font-size: 12px;
+    color: #94a3b8;
+    margin-top: 4px;
+  }
+
+  .camadas-ctrl label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    cursor: pointer;
+    border-radius: 6px;
+    font-size: 13px;
+    transition: background 0.15s;
+  }
+
+  .camadas-ctrl label:hover { background: #1e293b; }
+
+  .camadas-ctrl input[type="checkbox"] {
+    accent-color: #3b82f6;
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+  }
+
+  .camadas-ctrl .swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+
+  footer {
+    font-size: 11px;
+    color: #64748b;
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid #1e293b;
+    line-height: 1.5;
+  }
+  footer a {
+    color: #94a3b8;
+    text-decoration: none;
+  }
+  footer a:hover { color: #e2e8f0; text-decoration: underline; }
+
+  .popup-fonte {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: 600;
+    font-size: 11px;
+    color: white;
+  }
+
+  @media (max-width: 720px) {
+    #app { flex-direction: column; }
+    aside { width: 100%; min-width: 0; max-height: 45vh; border-left: none; border-top: 1px solid #1e293b; }
+    #map { height: 55vh; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="map" role="application" aria-label="Mapa interativo de edificacoes"></div>
+  <aside>
+    <h1>Uberlândia/MG</h1>
+    <p class="subtitulo">Open Buildings Explorer BR</p>
+
+    <div class="secao">
+      <h2>Area de interesse</h2>
+      <dl class="meta-grid">
+        <dt>Codigo IBGE</dt><dd>3170206</dd>
+        <dt>Area oficial</dt><dd>4115.2 km&sup2;</dd>
+        <dt>Populacao 2022</dt><dd>713.224 hab.</dd>
+        <dt>Tipologia</dt><dd>cidade_media_urbana_consolidada</dd>
+      </dl>
+    </div>
+
+    <div class="secao">
+      <h2>Edificacoes (537.880 no total)</h2>
+
+      <div class="stat-fonte">
+        <div class="stat-swatch" style="background: #4285F4"></div>
+        <div class="stat-corpo">
+          <div class="stat-label">Google Open Buildings</div>
+          <div class="stat-num">531.100<span class="stat-pct">98.7%</span></div>
+          <div class="stat-area">54.209.501 m² edificados</div>
+        </div>
+      </div>
+
+      <div class="stat-fonte">
+        <div class="stat-swatch" style="background: #00A4EF"></div>
+        <div class="stat-corpo">
+          <div class="stat-label">Microsoft Building Footprints</div>
+          <div class="stat-num">6.780<span class="stat-pct">1.3%</span></div>
+          <div class="stat-area">505.569 m² edificados</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="secao">
+      <h2>Camadas</h2>
+      <div class="camadas-ctrl">
+        <label>
+          <input type="checkbox" id="toggle-google" checked>
+          <span class="swatch" style="background: #4285F4"></span>
+          <span>Google</span>
+        </label>
+        <label>
+          <input type="checkbox" id="toggle-microsoft" checked>
+          <span class="swatch" style="background: #00A4EF"></span>
+          <span>Microsoft</span>
+        </label>
+      </div>
+    </div>
+
+    <footer>
+      Dados: VIDA Google-Microsoft Open Buildings &middot; Poligono IBGE 2022.
+      Analise: DuckDB sobre S3 publico. min_area_m2 = 30 m2 / simplify_tolerance = 1e-05 graus
+      <br><br>
+      <a href="https://github.com/PedroLuizskt/open-buildings-explorer-br" target="_blank" rel="noopener">
+        github.com/PedroLuizskt/open-buildings-explorer-br
+      </a>
+    </footer>
+  </aside>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin=""></script>
+<script>
+  // Configuracao vinda do backend
+  const BOUNDS_SW = [-19.416499, -48.823554];  // [lat, lon]
+  const BOUNDS_NE = [-18.593071, -47.902937];
+  const URL_GOOGLE = "data/uberlandia_mg_google.geojson";
+  const URL_MICROSOFT = "data/uberlandia_mg_microsoft.geojson";
+  const COR_GOOGLE = "#4285F4";
+  const COR_MICROSOFT = "#00A4EF";
+
+  // Canvas renderer: critico para performance com muitos poligonos
+  const canvasRenderer = L.canvas({ padding: 0.5 });
+
+  const map = L.map("map", {
+    renderer: canvasRenderer,
+    preferCanvas: true,
+    zoomControl: true,
+  });
+
+  // Tile layer OSM
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom: 19,
+  }).addTo(map);
+
+  // Ajusta ao bounds da AOI
+  map.fitBounds([BOUNDS_SW, BOUNDS_NE]);
+
+  function estiloFootprint(cor) {
+    return {
+      color: cor,
+      weight: 0.5,
+      fillColor: cor,
+      fillOpacity: 0.55,
+    };
+  }
+
+  function popupFootprint(fonte, cor) {
+    return function(feature, layer) {
+      const label = fonte === "google" ? "Google" : "Microsoft";
+      layer.bindPopup(
+        '<div style="font-family: sans-serif; font-size: 12px;">' +
+        '<div style="margin-bottom: 4px;">' +
+        '<span class="popup-fonte" style="background: ' + cor + ';">' + label + '</span>' +
+        '</div>' +
+        'Fonte: ' + label +
+        '</div>'
+      );
+    };
+  }
+
+  let camadaGoogle = null;
+  let camadaMicrosoft = null;
+
+  function carregarCamada(url, cor, fonte, callback) {
+    if (!url) { callback(null); return; }
+    fetch(url)
+      .then(r => r.json())
+      .then(gj => {
+        const layer = L.geoJSON(gj, {
+          renderer: canvasRenderer,
+          style: () => estiloFootprint(cor),
+          onEachFeature: popupFootprint(fonte, cor),
+        });
+        callback(layer);
+      })
+      .catch(err => {
+        console.error("Erro ao carregar " + fonte + ":", err);
+        callback(null);
+      });
+  }
+
+  // Carrega as duas camadas em paralelo
+  carregarCamada(URL_GOOGLE, COR_GOOGLE, "google", (layer) => {
+    camadaGoogle = layer;
+    if (layer) layer.addTo(map);
+  });
+  carregarCamada(URL_MICROSOFT, COR_MICROSOFT, "microsoft", (layer) => {
+    camadaMicrosoft = layer;
+    if (layer) layer.addTo(map);
+  });
+
+  // Toggles do painel lateral
+  document.getElementById("toggle-google").addEventListener("change", (e) => {
+    if (!camadaGoogle) return;
+    if (e.target.checked) camadaGoogle.addTo(map);
+    else map.removeLayer(camadaGoogle);
+  });
+  document.getElementById("toggle-microsoft").addEventListener("change", (e) => {
+    if (!camadaMicrosoft) return;
+    if (e.target.checked) camadaMicrosoft.addTo(map);
+    else map.removeLayer(camadaMicrosoft);
+  });
+</script>
+</body>
+</html>

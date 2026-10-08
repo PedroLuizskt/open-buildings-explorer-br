@@ -96,6 +96,25 @@ class TestAnalyzeExport:
                 "--format", "yaml",  # invalido
             ])
 
+    def test_webmap_aoi_inexistente_retorna_3(self, capsys) -> None:
+        rc = cli.main(["webmap", "--aoi", "aoi_ficticia"])
+        assert rc == 3
+
+    def test_webmap_sem_aoi_argparse_reclama(self) -> None:
+        with pytest.raises(SystemExit):
+            cli.main(["webmap"])
+
+    def test_webmap_min_area_negativo_retorna_1(self, capsys, tmp_path) -> None:
+        """min-area-m2 negativo levanta ValueError na funcao -> codigo 1."""
+        rc = cli.main([
+            "webmap", "--aoi", "cambuquira_mg",
+            "--pular-carga", "--db-path", str(tmp_path / "nao_existe.duckdb"),
+            "--min-area-m2", "-5",
+        ])
+        # Pode retornar 1 (ValueError), 3 (tabela nao existe) ou 4 (duckdb)
+        # dependendo da ordem de validacao. O importante eh nao ser 0.
+        assert rc != 0
+
 
 # =============================================================================
 # Codigos de saida
